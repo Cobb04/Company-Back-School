@@ -2,7 +2,7 @@
 
 ### Issue tracker
 
-Issues are tracked in Linear project `期末返校作战计划生成器 Web V0.5` under team `Fakeitunti11Umakeit`. See `docs/agents/issue-tracker.md`.
+Issues are tracked as GitHub Issues in [Cobb04/Company-Back-School](https://github.com/Cobb04/Company-Back-School). No external PR triage. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 

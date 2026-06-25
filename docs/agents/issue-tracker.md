@@ -1,25 +1,24 @@
-# Issue tracker: Linear
+# Issue tracker: GitHub
 
-Issues and PRDs for this repo are tracked in Linear.
-
-## Linear project
-
-- Workspace/team: `Fakeitunti11Umakeit`
-- Project: `期末返校作战计划生成器 Web V0.5`
-- Project URL: https://linear.app/fakeitunti11umakeit/project/期末返校作战计划生成器-web-v05-1731500bc813
+Issues and PRDs for this repo live as GitHub issues in [Cobb04/Company-Back-School](https://github.com/Cobb04/Company-Back-School). Use the `gh` CLI for all operations.
 
 ## Conventions
 
-- Product work is created as Linear issues in this project.
-- Phase grouping uses Linear project milestones.
-- Agent-ready work should carry the `ready-for-agent` label.
-- Incoming or unclear work should start with `needs-triage`.
-- PRD/reference material should be stored as Linear project documents when it belongs in the tracker.
+- **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
+- **Read an issue**: `gh issue view <number> --comments`, filtering comments by `jq` and also fetching labels.
+- **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
+- **Comment on an issue**: `gh issue comment <number> --body "..."`
+- **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
+- **Close**: `gh issue close <number> --comment "..."`
+
+## Pull requests as a triage surface
+
+**PRs as a request surface: no.** Solo developer repo — no external contributors.
 
 ## When a skill says "publish to the issue tracker"
 
-Create or update Linear issues in the project above. Use the configured triage labels from `docs/agents/triage-labels.md`.
+Create a GitHub issue in Cobb04/Company-Back-School.
 
 ## When a skill says "fetch the relevant ticket"
 
-Fetch the Linear issue by identifier, for example `FAK-16`.
+Run `gh issue view <number> --comments`.

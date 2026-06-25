@@ -9,7 +9,9 @@
       "Bash(npx skills@latest *)",
       "Bash(git init *)",
       "Bash(gh repo *)",
-      "Bash(git add *)"
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)"
     ]
   }
 }
