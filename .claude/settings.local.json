@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:gitcode.csdn.net)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:cloud.tencent.com.cn)",
+      "WebFetch(domain:www.53ai.com)",
+      "Bash(npx skills@latest *)",
+      "Bash(git init *)",
+      "Bash(gh repo *)",
+      "Bash(git add *)"
+    ]
+  }
+}
