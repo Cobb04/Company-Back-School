@@ -6,7 +6,7 @@ Issues are tracked as GitHub Issues in [Cobb04/Company-Back-School](https://gith
 
 ### Triage labels
 
-Linear uses the five canonical triage labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+GitHub Issues uses the five canonical triage labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 

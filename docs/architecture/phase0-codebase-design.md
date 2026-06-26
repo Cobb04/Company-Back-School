@@ -22,7 +22,7 @@ This document defines the Phase 0 module interfaces for Return School Planner. T
 export type SeatStatus = "available" | "waitlist" | "sold_out" | "unknown";
 export type RiskLevel = "low" | "medium" | "high";
 export type Decision = "recommend" | "optional" | "not_recommended";
-export type Preference = "stable" | "less_leave" | "cheap" | "easy";
+export type Preference = "price_sensitive" | "time_sensitive" | "balanced";
 
 export interface TrainCandidate { /* domain fields only */ }
 export interface ScoredTrain extends TrainCandidate { /* score, riskLevel, decision, reasons */ }
@@ -42,8 +42,8 @@ export interface PlanEvaluateResponse { /* safeDepartureTime, grouped trains, pl
 
 ```ts
 export function calculateSafeDepartureTime(input: {
-  offWorkTime: string;
-  commuteMinutes: number;
+  clockOutTime: string;
+  companyToStationMinutes: number;
   stationEntryBufferMinutes: number;
   riskBufferMinutes: number;
 }): string;
@@ -79,7 +79,7 @@ export function buildReturnPlans(input: {
 ```ts
 export interface TicketSource {
   searchTrainCandidates(query: {
-    fromStation: string;
+    fromStations: string[];
     toStations: string[];
     departDate: string;
     trainTypes: string[];
@@ -111,7 +111,7 @@ export async function evaluateReturnPlan(
 
 **Rules:**
 
-- Phase 0 uses `mockTicketSource` backed by `examples/shanghai-wuhan.json`.
+- Phase 0 uses `mockTicketSource` backed by `examples/shanghai-yantai.json`.
 - Phase 1 adds `mcp12306TicketSource`.
 - Planning modules never know whether a Train Candidate came from mock data or 12306-mcp beyond the `source` field.
 
