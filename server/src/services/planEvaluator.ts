@@ -99,11 +99,14 @@ export async function evaluateReturnPlan(
     preference: request.preference,
   });
 
-  // 7. Group trains by decision category
+  // 7. Group trains by decision using the coherent set from buildReturnPlans.
+  // When leave is recommended these are leave-adjusted; otherwise original.
+  // This ensures the same train never has two different scores/reasons in one response.
+  const displayTrains = planResult.allScoredTrains;
   const groupedTrains = {
-    recommend: scoredTrains.filter((t) => t.decision === "recommend"),
-    optional: scoredTrains.filter((t) => t.decision === "optional"),
-    notRecommended: scoredTrains.filter((t) => t.decision === "not_recommended"),
+    recommend: displayTrains.filter((t) => t.decision === "recommend"),
+    optional: displayTrains.filter((t) => t.decision === "optional"),
+    notRecommended: displayTrains.filter((t) => t.decision === "not_recommended"),
   };
 
   // 8. Extract safe departure time in HH:mm display format

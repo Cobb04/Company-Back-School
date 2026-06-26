@@ -336,6 +336,16 @@ describe("POST /api/train/search", () => {
     expect(body.error).toContain("firstExamAt");
   });
 
+  it("returns 400 for pseudo-legal firstExamAt (2026-02-31) on train/search", async () => {
+    const res = await app.request("/api/train/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...validBody, firstExamAt: "2026-02-31T09:00:00+08:00" }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
   // --- P2 fix: departDate filtering ---
 
   it("returns 0 trains for far-future departDate", async () => {

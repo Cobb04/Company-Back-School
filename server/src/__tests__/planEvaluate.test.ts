@@ -404,6 +404,27 @@ describe("POST /api/plan/evaluate", () => {
     expect(res.status).toBe(400);
   });
 
+  it("returns 400 for pseudo-legal firstExamAt (2026-02-31)", async () => {
+    // JS would roll 2026-02-31 to Mar 3 — round-trip validation must catch this
+    const res = await app.request("/api/plan/evaluate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...validBody, firstExamAt: "2026-02-31T09:00:00+08:00" }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 400 for pseudo-legal firstExamAt (2026-04-31)", async () => {
+    const res = await app.request("/api/plan/evaluate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...validBody, firstExamAt: "2026-04-31T09:00:00+08:00" }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
   it("returns 400 for missing companyToStationMinutes", async () => {
     const { companyToStationMinutes, ...rest } = validBody;
     const res = await app.request("/api/plan/evaluate", {

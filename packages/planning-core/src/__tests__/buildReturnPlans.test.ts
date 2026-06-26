@@ -183,6 +183,29 @@ describe("buildReturnPlans", () => {
     expect(result.leaveSuggestion.suggestedEarlyDepartureMinutes).toBeGreaterThan(0);
     expect(result.selectedTrain!.id).toBe("G9999");
     expect(result.plans[0]!.title).toContain("需请假");
+
+    // Consistency: the selected early train in plans must NOT have the
+    // "早于安全出发时间" penalty reason (leave scenario removes it).
+    const planTrain = result.plans[0]!.train;
+    expect(planTrain.id).toBe("G9999");
+    const hasDepartPenalty = planTrain.reasons.some((r) =>
+      r.includes("早于安全出发时间"),
+    );
+    expect(hasDepartPenalty).toBe(false);
+    // Instead, it should have the leave note
+    const hasLeaveNote = planTrain.reasons.some((r) =>
+      r.includes("需请假提前出发"),
+    );
+    expect(hasLeaveNote).toBe(true);
+
+    // allScoredTrains must use leave-adjusted scores (same context as plans)
+    expect(result.allScoredTrains.length).toBe(3);
+    const earlyInList = result.allScoredTrains.find((t) => t.id === "G9999");
+    expect(earlyInList).toBeDefined();
+    // Same score in both plan.train and allScoredTrains
+    expect(earlyInList!.score).toBe(planTrain.score);
+    // Same decision in both
+    expect(earlyInList!.decision).toBe(planTrain.decision);
   });
 
   // ---- Pass 1 finds nothing good, Pass 2 not much better → no leave ----
@@ -303,6 +326,18 @@ describe("buildReturnPlans", () => {
     expect(result.leaveSuggestion.needLeave).toBe(true);
     expect(result.leaveSuggestion.suggestedEarlyDepartureMinutes).toBeGreaterThan(0);
     expect(result.leaveSuggestion.reason).toContain("建议请假");
+
+    // The plan's train must NOT have "早于安全出发时间" (leave scenario)
+    const planTrain = result.plans[0]!.train;
+    const hasDepartPenalty = planTrain.reasons.some((r) =>
+      r.includes("早于安全出发时间"),
+    );
+    expect(hasDepartPenalty).toBe(false);
+
+    // allScoredTrains must match plan.train (same context)
+    const inList = result.allScoredTrains.find((t) => t.id === planTrain.id);
+    expect(inList).toBeDefined();
+    expect(inList!.score).toBe(planTrain.score);
   });
 
   // ---- Plan structure validation ----
