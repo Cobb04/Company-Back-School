@@ -135,6 +135,75 @@ export interface PlanEvaluateResponse {
   plans: ReturnPlan[];
 }
 
+// --- City-Station Mapping ---
+
+/**
+ * Maps a city name to its known train stations.
+ * Phase 0 covers Shanghai and Yantai only.
+ */
+export const CITY_STATION_MAP: Record<string, string[]> = {
+  "上海": ["上海虹桥", "上海站", "上海南站"],
+  "烟台": ["烟台站", "烟台南站"],
+};
+
+/**
+ * Returns all known stations for a city, or an empty array if unknown.
+ */
+export function getStationsForCity(city: string): string[] {
+  return CITY_STATION_MAP[city] ?? [];
+}
+
+// --- Train Search ---
+
+/** Request body for the train search endpoint. */
+export interface TrainSearchRequest {
+  /** Departure city name, e.g. "上海". */
+  departureCity: string;
+  /** Destination city name, e.g. "烟台". */
+  destinationCity: string;
+  /** ISO 8601 date string, e.g. "2026-06-26". */
+  departDate: string;
+  /** The intern's trade-off priority. */
+  preference: Preference;
+  /** ISO 8601 datetime for clock-out time. */
+  clockOutTime: string;
+  /** Minutes from company to departure station. */
+  companyToStationMinutes: number;
+  /** ISO 8601 datetime for the earliest exam. */
+  firstExamAt: string;
+  /** Minutes from destination station to school (per station). */
+  stationToSchoolMinutes: Record<string, number>;
+  /** Minutes of station entry buffer (default 30). */
+  stationEntryBufferMinutes?: number;
+  /** Minutes of risk buffer (default 15). */
+  riskBufferMinutes?: number;
+}
+
+/** Response body for the train search endpoint. */
+export interface TrainSearchResponse {
+  /** Scored trains sorted by score descending. */
+  trains: ScoredTrain[];
+  /** Computed safe departure time (ISO 8601 datetime). */
+  safeDepartureTime: string;
+  /** Total number of trains found. */
+  total: number;
+}
+
+// --- Ticket Source (server-side boundary) ---
+
+/**
+ * Trusted source of train availability data.
+ * Phase 0: mockTicketSource. Phase 1: mcp12306TicketSource.
+ * Planning code never knows which adapter is in use.
+ */
+export interface TicketSource {
+  searchTrainCandidates(params: {
+    fromStations: string[];
+    toStations: string[];
+    departDate: string;
+  }): Promise<TrainCandidate[]>;
+}
+
 // --- S1: Safe Departure Time ---
 
 /** Input for the safe departure time calculator. */
