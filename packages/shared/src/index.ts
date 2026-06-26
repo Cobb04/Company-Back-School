@@ -134,3 +134,23 @@ export interface PlanEvaluateResponse {
   /** Generated return plans. */
   plans: ReturnPlan[];
 }
+
+// --- S1: Safe Departure Time ---
+
+/** Input for the safe departure time calculator. */
+export interface SafeDepartureInput {
+  /** Clock-out time in "HH:mm" format (24-hour). */
+  clockOutTime: string;
+  /** Minutes from company to departure station. */
+  companyToStationMinutes: number;
+  /** Minutes of station entry buffer (default 30). */
+  stationEntryBufferMinutes: number;
+  /** Minutes of risk buffer (default 15). */
+  riskBufferMinutes: number;
+}
+
+/** Output from the safe departure time calculator. */
+export interface SafeDepartureOutput {
+  /** Earliest safe train departure time in "HH:mm" format (24-hour). */
+  safeDepartureTime: string;
+}
