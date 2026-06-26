@@ -761,11 +761,14 @@ function buildPlan(
   // Checklist is empty for S3 — comes in S4/S6
   const checklist: string[] = [];
 
-  // Leave suggestion is per-plan — if the plan requires early departure, note it
+  // Leave suggestion is per-plan — filled when the train requires early departure.
+  // Two markers: original "早于安全出发时间" (no-leave score) or
+  // "需请假提前出发" (leave-adjusted score from leaveAdjustedTrain).
   let planLeave: LeaveSuggestion | null = null;
-  // Check if this train requires leave by looking at scoring reasons
-  const hasEarlyDeparture = train.reasons.some((r) => r.includes("早于安全出发时间"));
-  if (hasEarlyDeparture) {
+  const needsLeave = train.reasons.some(
+    (r) => r.includes("早于安全出发时间") || r.includes("需请假提前出发"),
+  );
+  if (needsLeave) {
     planLeave = {
       needLeave: true,
       reason: `此车次需要提前离开公司才能赶上。`,
