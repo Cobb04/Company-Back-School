@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
-import type { TrainSearchResponse, ScoredTrain, Preference } from "@return-school/shared";
+import type { PlanEvaluateResponse, ScoredTrain, ReturnPlan, Preference } from "@return-school/shared";
 
 const PREFERENCE_LABELS: Record<Preference, string> = {
   price_sensitive: "价格敏感",
@@ -57,7 +57,7 @@ export default function App() {
   }, []);
 
   // --- Result state ---
-  const [result, setResult] = useState<TrainSearchResponse | null>(null);
+  const [result, setResult] = useState<PlanEvaluateResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -111,7 +111,7 @@ export default function App() {
     if (stationEntry !== null) body.stationEntryBufferMinutes = stationEntry;
     if (risk !== null) body.riskBufferMinutes = risk;
 
-    fetch("/api/train/search", {
+    fetch("/api/plan/evaluate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -357,56 +357,71 @@ export default function App() {
 
       {/* Results */}
       {result && (
-        <section className="mt-6 rounded-xl bg-white p-6 shadow-sm">
-          {/* Summary */}
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">
-                车次对比列表
-              </h2>
-              <p className="text-sm text-gray-500">
-                共 {result.total} 个车次 · 安全出发时间{" "}
-                <span className="font-mono font-semibold text-blue-600">
-                  {result.safeDepartureTime}
-                </span>
-                {" · "}偏好：{PREFERENCE_LABELS[preference]}
-              </p>
-            </div>
-          </div>
-
-          {result.trains.length === 0 ? (
-            <div className="py-12 text-center text-gray-400">
-              <p className="text-lg">未找到可用车次</p>
-              <p className="mt-1 text-sm">
-                尝试调整出发城市或目的城市
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b-2 border-gray-200 text-left text-xs uppercase text-gray-500">
-                    <th className="whitespace-nowrap pb-2 pr-3">车次</th>
-                    <th className="whitespace-nowrap pb-2 pr-3">出发 → 到达</th>
-                    <th className="whitespace-nowrap pb-2 pr-3">出发时间</th>
-                    <th className="whitespace-nowrap pb-2 pr-3">到达时间</th>
-                    <th className="whitespace-nowrap pb-2 pr-3">历时</th>
-                    <th className="whitespace-nowrap pb-2 pr-3">价格</th>
-                    <th className="whitespace-nowrap pb-2 pr-3">舒适度</th>
-                    <th className="whitespace-nowrap pb-2 pr-3">评分</th>
-                    <th className="whitespace-nowrap pb-2 pr-3">风险</th>
-                    <th className="whitespace-nowrap pb-2">推荐</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {result.trains.map((train) => (
-                    <TrainRow key={train.id} train={train} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
+        <>
+          {/* Plan Summary Bar */}
+          {result.plans.length > 0 && (
+            <PlanSummary plans={result.plans} leaveSuggestion={result.leaveSuggestion} />
           )}
-        </section>
+
+          {/* Leave Suggestion */}
+          <LeaveSuggestionBanner suggestion={result.leaveSuggestion} />
+
+          {/* Comparison List */}
+          <section className="mt-6 rounded-xl bg-white p-6 shadow-sm">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">
+                  车次对比列表
+                </h2>
+                <p className="text-sm text-gray-500">
+                  共 {result.groupedTrains.recommend.length + result.groupedTrains.optional.length + result.groupedTrains.notRecommended.length} 个车次 · 安全出发时间{" "}
+                  <span className="font-mono font-semibold text-blue-600">
+                    {result.safeDepartureTime}
+                  </span>
+                  {" · "}偏好：{PREFERENCE_LABELS[preference]}
+                </p>
+              </div>
+            </div>
+
+            {result.groupedTrains.recommend.length === 0 &&
+             result.groupedTrains.optional.length === 0 &&
+             result.groupedTrains.notRecommended.length === 0 ? (
+              <div className="py-12 text-center text-gray-400">
+                <p className="text-lg">未找到可用车次</p>
+                <p className="mt-1 text-sm">
+                  尝试调整出发城市或目的城市
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b-2 border-gray-200 text-left text-xs uppercase text-gray-500">
+                      <th className="whitespace-nowrap pb-2 pr-3">车次</th>
+                      <th className="whitespace-nowrap pb-2 pr-3">出发 → 到达</th>
+                      <th className="whitespace-nowrap pb-2 pr-3">出发时间</th>
+                      <th className="whitespace-nowrap pb-2 pr-3">到达时间</th>
+                      <th className="whitespace-nowrap pb-2 pr-3">到校时间</th>
+                      <th className="whitespace-nowrap pb-2 pr-3">历时</th>
+                      <th className="whitespace-nowrap pb-2 pr-3">价格</th>
+                      <th className="whitespace-nowrap pb-2 pr-3">考试缓冲</th>
+                      <th className="whitespace-nowrap pb-2 pr-3">舒适度</th>
+                      <th className="whitespace-nowrap pb-2 pr-3">评分</th>
+                      <th className="whitespace-nowrap pb-2 pr-3">风险</th>
+                      <th className="whitespace-nowrap pb-2">推荐</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {/* Recommend first, then optional, then not_recommended */}
+                    {[...result.groupedTrains.recommend, ...result.groupedTrains.optional, ...result.groupedTrains.notRecommended].map((train) => (
+                      <TrainRow key={train.id} train={train} />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </>
       )}
     </main>
   );
@@ -448,6 +463,20 @@ function TrainRow({ train }: { train: ScoredTrain }) {
         ? "bg-gray-100 text-gray-600"
         : "bg-red-50 text-red-500";
 
+  const schoolTime = extractTime(train.estimatedSchoolArrival);
+  const examBufferStr =
+    train.examBufferMinutes < 0
+      ? "考试已开始"
+      : `${Math.floor(train.examBufferMinutes / 60)}h${train.examBufferMinutes % 60}m`;
+  const examBufferColor =
+    train.examBufferMinutes < 0
+      ? "text-red-600 font-semibold"
+      : train.examBufferMinutes < 60
+        ? "text-red-600"
+        : train.examBufferMinutes < 120
+          ? "text-yellow-600"
+          : "text-green-600";
+
   return (
     <tr
       className={`border-b border-gray-100 ${
@@ -474,11 +503,19 @@ function TrainRow({ train }: { train: ScoredTrain }) {
       <td className="whitespace-nowrap py-3 pr-3 font-mono text-gray-900">
         {arriveTime}
       </td>
+      <td className="whitespace-nowrap py-3 pr-3 font-mono text-gray-600">
+        {schoolTime}
+      </td>
       <td className="whitespace-nowrap py-3 pr-3 text-gray-600">
         {durationStr}
       </td>
       <td className="whitespace-nowrap py-3 pr-3 font-mono text-gray-900">
         ¥{train.price}
+      </td>
+      <td className="whitespace-nowrap py-3 pr-3">
+        <span className={`text-xs ${examBufferColor}`}>
+          {examBufferStr}
+        </span>
       </td>
       <td className="whitespace-nowrap py-3 pr-3">
         <span
@@ -515,6 +552,108 @@ function TrainRow({ train }: { train: ScoredTrain }) {
         </span>
       </td>
     </tr>
+  );
+}
+
+/** Display the primary plan summary bar. */
+function PlanSummary({
+  plans,
+}: {
+  plans: ReturnPlan[];
+  leaveSuggestion: PlanEvaluateResponse["leaveSuggestion"];
+}) {
+  const primary = plans[0];
+  if (!primary) return null;
+
+  const train = primary.train;
+  const departTime = extractTime(train.departureTime);
+  const arriveTime = extractTime(train.arrivalTime);
+  const schoolTime = extractTime(train.estimatedSchoolArrival);
+
+  return (
+    <section className="mt-6 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 p-6 text-white shadow-md">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-medium text-blue-100">
+            {primary.title}
+          </h2>
+          <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-2xl font-bold">
+            <span className="font-mono">{train.trainNumber}</span>
+            <span className="text-blue-100">
+              {train.departureStation}
+              <span className="mx-1">→</span>
+              {train.arrivalStation}
+            </span>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-blue-100">
+            <span>出发 <span className="font-mono font-semibold text-white">{departTime}</span></span>
+            <span>到达 <span className="font-mono font-semibold text-white">{arriveTime}</span></span>
+            <span>到校 <span className="font-mono font-semibold text-white">{schoolTime}</span></span>
+            <span>票价 <span className="font-semibold text-white">¥{train.price}</span></span>
+            <span>评分 <span className="font-semibold text-white">{train.score}/100</span></span>
+          </div>
+          {primary.risks.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {primary.risks.map((r, i) => (
+                <span
+                  key={i}
+                  className="rounded-full bg-red-400/30 px-2 py-0.5 text-xs text-white"
+                >
+                  ⚠ {r}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        {train.decision === "recommend" && (
+          <div className="rounded-full bg-white/20 px-4 py-2 text-sm font-semibold">
+            ⭐ 推荐方案
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** Leave suggestion banner. */
+function LeaveSuggestionBanner({
+  suggestion,
+}: {
+  suggestion: PlanEvaluateResponse["leaveSuggestion"];
+}) {
+  if (!suggestion) return null;
+
+  const leaveHours = Math.floor(suggestion.suggestedEarlyDepartureMinutes / 60);
+  const leaveMins = suggestion.suggestedEarlyDepartureMinutes % 60;
+
+  return (
+    <section
+      className={`mt-4 rounded-xl p-5 shadow-sm ${
+        suggestion.needLeave
+          ? "bg-amber-50 border border-amber-200"
+          : "bg-green-50 border border-green-200"
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        <span className="text-xl">
+          {suggestion.needLeave ? "⚠️" : "✅"}
+        </span>
+        <div className="flex-1">
+          <h3 className="font-semibold text-gray-900">
+            {suggestion.needLeave ? "建议请假" : "无需请假"}
+          </h3>
+          <p className="mt-1 text-sm text-gray-600">{suggestion.reason}</p>
+          {suggestion.needLeave && suggestion.suggestedEarlyDepartureMinutes > 0 && (
+            <p className="mt-2 text-sm font-medium text-amber-700">
+              建议提前
+              {leaveHours > 0 ? ` ${leaveHours} 小时` : ""}
+              {leaveMins > 0 ? ` ${leaveMins} 分钟` : ""}
+              出发
+            </p>
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 

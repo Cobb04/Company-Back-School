@@ -9,9 +9,11 @@ import type {
   TrainSearchRequest,
   TrainSearchResponse,
   ScoredTrain,
+  PlanEvaluateRequest,
 } from "@return-school/shared";
 import { getStationsForCity } from "@return-school/shared";
 import { mockTicketSource } from "./adapters/mockTicketSource";
+import { evaluateReturnPlan } from "./services/planEvaluator";
 
 const app = new Hono();
 
@@ -310,6 +312,160 @@ app.post("/api/train/search", async (c) => {
   };
 
   return c.json(response);
+});
+
+// S3: Plan evaluator — unified deep module endpoint.
+// Thin route: validates input, delegates to evaluateReturnPlan, returns JSON.
+app.post("/api/plan/evaluate", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return c.json({ error: "Request body must be a JSON object" }, 400);
+  }
+
+  const input = body as Record<string, unknown>;
+
+  // Validate required string fields
+  const requiredStrings = [
+    "departureCity",
+    "destinationCity",
+    "departDate",
+    "preference",
+    "clockOutTime",
+    "firstExamAt",
+  ] as const;
+  for (const field of requiredStrings) {
+    if (typeof input[field] !== "string" || (input[field] as string).trim() === "") {
+      return c.json({ error: `${field} is required and must be a non-empty string` }, 400);
+    }
+  }
+
+  // Validate departDate format ("YYYY-MM-DD") and real calendar date
+  const departDate = input.departDate as string;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(departDate) || !isRealDate(departDate)) {
+    return c.json({ error: `departDate must be a valid date in YYYY-MM-DD format, got "${departDate}"` }, 400);
+  }
+
+  // Validate clockOutTime format ("HH:mm")
+  const clockOutTime = input.clockOutTime as string;
+  if (!/^\d{2}:\d{2}$/.test(clockOutTime)) {
+    return c.json({ error: `clockOutTime must be in HH:mm format, got "${clockOutTime}"` }, 400);
+  }
+
+  // Validate firstExamAt is a valid ISO 8601 datetime
+  const firstExamAt = input.firstExamAt as string;
+  if (isNaN(new Date(firstExamAt).getTime())) {
+    return c.json({ error: `firstExamAt must be a valid ISO 8601 datetime, got "${firstExamAt}"` }, 400);
+  }
+
+  // Validate preference enum
+  const preference = input.preference as string;
+  if (!["price_sensitive", "time_sensitive", "balanced"].includes(preference)) {
+    return c.json(
+      { error: `preference must be one of: price_sensitive, time_sensitive, balanced` },
+      400,
+    );
+  }
+
+  // Validate departure city
+  const depStations = getStationsForCity(input.departureCity as string);
+  if (depStations.length === 0) {
+    return c.json(
+      { error: `Unknown departure city: "${input.departureCity}". Supported: 上海, 烟台` },
+      400,
+    );
+  }
+
+  // Validate destination city
+  const arrStations = getStationsForCity(input.destinationCity as string);
+  if (arrStations.length === 0) {
+    return c.json(
+      { error: `Unknown destination city: "${input.destinationCity}". Supported: 上海, 烟台` },
+      400,
+    );
+  }
+
+  // Validate companyToStationMinutes (required, non-negative integer)
+  if (!isValidMinutes(input.companyToStationMinutes)) {
+    return c.json(
+      { error: "companyToStationMinutes must be a non-negative integer" },
+      400,
+    );
+  }
+
+  // Validate stationToSchoolMinutes (required, non-null object)
+  if (
+    input.stationToSchoolMinutes === null ||
+    typeof input.stationToSchoolMinutes !== "object" ||
+    Array.isArray(input.stationToSchoolMinutes)
+  ) {
+    return c.json(
+      { error: "stationToSchoolMinutes must be a non-null object mapping station names to minutes" },
+      400,
+    );
+  }
+
+  // Validate optional minute fields
+  const stationEntryBufferMinutes =
+    typeof input.stationEntryBufferMinutes === "number" ? input.stationEntryBufferMinutes : 30;
+  const riskBufferMinutes =
+    typeof input.riskBufferMinutes === "number" ? input.riskBufferMinutes : 15;
+
+  if (!isValidMinutes(stationEntryBufferMinutes)) {
+    return c.json({ error: "stationEntryBufferMinutes must be a non-negative integer" }, 400);
+  }
+  if (!isValidMinutes(riskBufferMinutes)) {
+    return c.json({ error: "riskBufferMinutes must be a non-negative integer" }, 400);
+  }
+
+  const stationToSchool = input.stationToSchoolMinutes as Record<string, number>;
+  for (const [station, minutes] of Object.entries(stationToSchool)) {
+    if (typeof minutes !== "number" || !Number.isInteger(minutes) || minutes < 0) {
+      return c.json(
+        { error: `stationToSchoolMinutes["${station}"] must be a non-negative integer` },
+        400,
+      );
+    }
+  }
+
+  // Call the deep module
+  try {
+    const result = await evaluateReturnPlan(
+      {
+        departureCity: input.departureCity as string,
+        destinationCity: input.destinationCity as string,
+        departDate,
+        clockOutTime,
+        companyToStationMinutes: input.companyToStationMinutes as number,
+        stationEntryBufferMinutes,
+        riskBufferMinutes,
+        firstExamAt,
+        stationToSchoolMinutes: stationToSchool,
+        preference: preference as PlanEvaluateRequest["preference"],
+        extremeSpeedMode: false,
+      },
+      { ticketSource: mockTicketSource },
+    );
+
+    return c.json(result);
+  } catch (err) {
+    if (err instanceof Error) {
+      // Distinguish between input errors and internal failures
+      const isInputError =
+        err.message.includes("Unknown departure city") ||
+        err.message.includes("Unknown destination city") ||
+        err.message.includes("Invalid time") ||
+        err.message.includes("Invalid date") ||
+        err.message.includes("Invalid ISO");
+      return c.json({ error: err.message }, isInputError ? 400 : 500);
+    }
+    return c.json({ error: "Failed to evaluate return plan" }, 500);
+  }
 });
 
 export default app;

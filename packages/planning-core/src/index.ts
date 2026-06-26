@@ -15,6 +15,8 @@ import type {
   ComfortLevel,
   RiskLevel,
   Decision,
+  ReturnPlan,
+  LeaveSuggestion,
 } from "@return-school/shared";
 
 // ============================================================
@@ -456,4 +458,261 @@ function minutesBetween(a: string, b: string): number {
   if (isNaN(da.getTime())) throw new Error(`Invalid ISO datetime: "${a}"`);
   if (isNaN(db.getTime())) throw new Error(`Invalid ISO datetime: "${b}"`);
   return Math.round((db.getTime() - da.getTime()) / 60000);
+}
+
+// ============================================================
+// S3: Two-Pass Scoring + Return Plans
+// ============================================================
+
+/** Two-pass scoring thresholds. Configurable constants, not magic numbers. */
+export const TWO_PASS = {
+  /** If Pass 1 best score is below this, trigger Pass 2. */
+  PASS1_THRESHOLD: 70,
+  /** Pass 2 best must beat Pass 1 best by at least this margin. */
+  IMPROVEMENT_MARGIN: 15,
+} as const;
+
+/** Input for buildReturnPlans. */
+export interface BuildReturnPlansInput {
+  /** All scored trains, sorted by score descending. */
+  scoredTrains: ScoredTrain[];
+  /** Safe departure datetime (ISO 8601). */
+  safeDepartureDatetime: string;
+  /** Earliest exam datetime (ISO 8601). */
+  firstExamAt: string;
+  /** Intern's trade-off preference. */
+  preference: Preference;
+}
+
+/** Output from buildReturnPlans. */
+export interface BuildReturnPlansOutput {
+  /** Generated return plans (primary first, then alternatives). */
+  plans: ReturnPlan[];
+  /** Overall leave recommendation from two-pass scoring. */
+  leaveSuggestion: LeaveSuggestion;
+  /** The selected (best) scored train, or null if no trains available. */
+  selectedTrain: ScoredTrain | null;
+}
+
+/**
+ * Build return plans using two-pass scoring.
+ *
+ * Pass 1 considers only trains departing at or after safe departure time
+ * (the no-leave window). If the best Pass 1 score is below the threshold,
+ * Pass 2 expands the window to all trains, including those that would
+ * require leaving work early. If Pass 2 finds a meaningfully better train,
+ * the system recommends taking leave.
+ *
+ * Deterministic — no LLM involved.
+ */
+export function buildReturnPlans(input: BuildReturnPlansInput): BuildReturnPlansOutput {
+  const { scoredTrains, safeDepartureDatetime, firstExamAt, preference } = input;
+
+  // No trains at all
+  if (scoredTrains.length === 0) {
+    return {
+      plans: [],
+      leaveSuggestion: {
+        needLeave: false,
+        reason: "未找到可用车次，无法生成返校方案。",
+        suggestedEarlyDepartureMinutes: 0,
+        leaveText: "",
+        estimatedLeaveDays: 0,
+      },
+      selectedTrain: null,
+    };
+  }
+
+  const safeMs = isoToEpochMs(safeDepartureDatetime);
+
+  // Pass 1: only trains departing at or after safe departure time
+  const pass1Trains = scoredTrains.filter(
+    (t) => isoToEpochMs(t.departureTime) >= safeMs,
+  );
+  const pass1Best = pass1Trains[0] ?? null;
+
+  // If Pass 1 produces a good enough result, no leave needed
+  if (pass1Best && pass1Best.score >= TWO_PASS.PASS1_THRESHOLD) {
+    const primaryPlan = buildPlan(pass1Best, "推荐方案", preference, firstExamAt);
+    const alternatives = buildAlternativePlans(
+      pass1Trains,
+      primaryPlan,
+      preference,
+      firstExamAt,
+      2,
+    );
+    return {
+      plans: [primaryPlan, ...alternatives],
+      leaveSuggestion: {
+        needLeave: false,
+        reason: `正常下班后出发，最佳车次 ${pass1Best.trainNumber} 评分 ${pass1Best.score} 分，无需请假。`,
+        suggestedEarlyDepartureMinutes: 0,
+        leaveText: "",
+        estimatedLeaveDays: 0,
+      },
+      selectedTrain: pass1Best,
+    };
+  }
+
+  // Pass 2: consider all trains (including those before safe departure)
+  const pass2Best = scoredTrains[0] ?? null;
+
+  // Check if Pass 2 is meaningfully better
+  if (
+    pass2Best &&
+    pass1Best &&
+    pass2Best.score - pass1Best.score > TWO_PASS.IMPROVEMENT_MARGIN
+  ) {
+    // Calculate how much earlier the intern needs to leave
+    const pass2DepartureMs = isoToEpochMs(pass2Best.departureTime);
+    const earlyMinutes = Math.max(0, Math.round((safeMs - pass2DepartureMs) / 60000));
+
+    const primaryPlan = buildPlan(pass2Best, "推荐方案（需请假）", preference, firstExamAt);
+    const alternatives = buildAlternativePlans(
+      scoredTrains.filter((t) => t.id !== pass2Best.id),
+      primaryPlan,
+      preference,
+      firstExamAt,
+      2,
+    );
+
+    return {
+      plans: [primaryPlan, ...alternatives],
+      leaveSuggestion: {
+        needLeave: true,
+        reason: `正常下班后最佳车次 ${pass1Best.trainNumber} 仅 ${pass1Best.score} 分（低于 ${TWO_PASS.PASS1_THRESHOLD} 分阈值），提前出发可搭乘 ${pass2Best.trainNumber}，评分提升至 ${pass2Best.score} 分。`,
+        suggestedEarlyDepartureMinutes: earlyMinutes,
+        leaveText: "",
+        estimatedLeaveDays: 0,
+      },
+      selectedTrain: pass2Best,
+    };
+  }
+
+  // Pass 2 not meaningfully better — stick with Pass 1
+  // (Or if Pass 1 empty, fall through to best available)
+  const bestTrain = pass1Best ?? scoredTrains[0];
+  if (!bestTrain) {
+    return {
+      plans: [],
+      leaveSuggestion: {
+        needLeave: false,
+        reason: "未找到可用车次。",
+        suggestedEarlyDepartureMinutes: 0,
+        leaveText: "",
+        estimatedLeaveDays: 0,
+      },
+      selectedTrain: null,
+    };
+  }
+
+  const primaryPlan = buildPlan(bestTrain, "推荐方案", preference, firstExamAt);
+  const alternatives = buildAlternativePlans(
+    scoredTrains.filter((t) => t.id !== bestTrain.id),
+    primaryPlan,
+    preference,
+    firstExamAt,
+    2,
+  );
+
+  return {
+    plans: [primaryPlan, ...alternatives],
+    leaveSuggestion: {
+      needLeave: false,
+      reason: pass1Best
+        ? `正常下班后最佳车次 ${pass1Best.trainNumber} 评分 ${pass1Best.score} 分，虽未达 ${TWO_PASS.PASS1_THRESHOLD} 分理想阈值，但提前出发无显著改善，建议正常出发。`
+        : `当前可用车次有限，最佳车次 ${bestTrain.trainNumber} 评分 ${bestTrain.score} 分。`,
+      suggestedEarlyDepartureMinutes: 0,
+      leaveText: "",
+      estimatedLeaveDays: 0,
+    },
+    selectedTrain: bestTrain,
+  };
+}
+
+/** Build a single ReturnPlan from a scored train. */
+function buildPlan(
+  train: ScoredTrain,
+  label: string,
+  _preference: Preference,
+  _firstExamAt: string,
+): ReturnPlan {
+  const departHHMM = extractHHMM(train.departureTime);
+  const arriveHHMM = extractHHMM(train.arrivalTime);
+  const schoolHHMM = extractHHMM(train.estimatedSchoolArrival);
+  const durationHours = Math.floor(train.durationMinutes / 60);
+  const durationMins = train.durationMinutes % 60;
+
+  const title = `${label}：${train.trainNumber} ${train.departureStation} → ${train.arrivalStation}`;
+
+  const summary =
+    `${train.trainNumber}（${train.trainType}字头）${train.departureStation} ${departHHMM} 出发` +
+    ` → ${train.arrivalStation} ${arriveHHMM} 到达` +
+    `（历时 ${durationHours}h${String(durationMins).padStart(2, "0")}m）` +
+    `，票价 ¥${train.price}` +
+    `，预计 ${schoolHHMM} 到校` +
+    `，距考试 ${train.examBufferMinutes >= 0 ? `${train.examBufferMinutes} 分钟` : "已开始"}` +
+    `，风险${train.riskLevel === "low" ? "低" : train.riskLevel === "medium" ? "中" : "高"}` +
+    `，评分 ${train.score}/100`;
+
+  const risks: string[] = [];
+  if (train.riskLevel === "high") {
+    risks.push(`高风险：${train.reasons.find((r) => r.includes("缓冲")) ?? "考试缓冲时间紧张"}`);
+  } else if (train.riskLevel === "medium") {
+    risks.push(`中等风险：请注意出发时间和考试缓冲`);
+  }
+  if (train.examBufferMinutes < 0) {
+    risks.push("考试已开始：到校时间晚于考试时间，无法参加考试");
+  } else if (train.examBufferMinutes < 60) {
+    risks.push(`考试缓冲仅 ${train.examBufferMinutes} 分钟，非常紧张`);
+  } else if (train.examBufferMinutes < 120) {
+    risks.push(`考试缓冲 ${train.examBufferMinutes} 分钟，略有紧张`);
+  }
+  if (train.trainType === "K") {
+    risks.push("K字头普快列车，耗时长、舒适度低");
+  }
+
+  // Checklist is empty for S3 — comes in S4/S6
+  const checklist: string[] = [];
+
+  // Leave suggestion is per-plan — if the plan requires early departure, note it
+  let planLeave: LeaveSuggestion | null = null;
+  // Check if this train requires leave by looking at scoring reasons
+  const hasEarlyDeparture = train.reasons.some((r) => r.includes("早于安全出发时间"));
+  if (hasEarlyDeparture) {
+    planLeave = {
+      needLeave: true,
+      reason: `此车次需要提前离开公司才能赶上。`,
+      suggestedEarlyDepartureMinutes: 0, // filled by caller if needed
+      leaveText: "",
+      estimatedLeaveDays: 0,
+    };
+  }
+
+  return {
+    title,
+    train,
+    summary,
+    risks,
+    checklist,
+    leaveSuggestion: planLeave,
+  };
+}
+
+/** Build a few alternative plans from remaining scored trains. */
+function buildAlternativePlans(
+  remaining: ScoredTrain[],
+  primary: ReturnPlan,
+  preference: Preference,
+  firstExamAt: string,
+  maxCount: number,
+): ReturnPlan[] {
+  // Take top-scoring alternatives that are at least "optional" and different from primary
+  const alternatives = remaining
+    .filter((t) => t.decision !== "not_recommended" && t.id !== primary.train.id)
+    .slice(0, maxCount);
+
+  return alternatives.map((t, i) =>
+    buildPlan(t, `备选方案 ${i + 1}`, preference, firstExamAt),
+  );
 }

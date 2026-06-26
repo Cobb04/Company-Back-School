@@ -87,7 +87,11 @@ export interface ReturnPlan {
 export interface LeaveSuggestion {
   /** Whether the intern needs to take leave. */
   needLeave: boolean;
-  /** Generated leave request text. */
+  /** Deterministic reason for the leave recommendation. */
+  reason: string;
+  /** How many minutes earlier the intern should leave work to catch the recommended train. */
+  suggestedEarlyDepartureMinutes: number;
+  /** Generated leave request text (S4 — Phase 3 expression layer). */
   leaveText: string;
   /** Estimated days of leave needed. */
   estimatedLeaveDays: number;
@@ -133,6 +137,8 @@ export interface PlanEvaluateResponse {
   };
   /** Generated return plans. */
   plans: ReturnPlan[];
+  /** Leave recommendation from two-pass scoring. */
+  leaveSuggestion: LeaveSuggestion;
 }
 
 // --- City-Station Mapping ---
