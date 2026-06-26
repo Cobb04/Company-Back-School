@@ -1,0 +1,21 @@
+{
+  "name": "return-school-planner",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "server",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "cd server && bun run dev",
+    "dev:server": "cd server && bun run dev",
+    "dev:web": "cd apps/web && bun run dev",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.8.0"
+  }
+}
