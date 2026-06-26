@@ -103,9 +103,13 @@ describe("buildReturnPlans", () => {
   // ---- Pass 2: better train found with early departure → recommend leave ----
 
   it("recommends leave when Pass 2 finds a meaningfully better train (acceptance criterion)", () => {
-    // Create a scenario where Pass 1 trains score low, but there's an early train that scores high
-    // Pass 1 trains: depart after 19:15, but score low (e.g., only K trains available after safe time)
-    // Pass 2: G train departing at 17:00 (before safe time) has high base score
+    // G train at 17:00 (before safe 19:15): raw score ~42 with -20 penalty.
+    // Pass 2 removes the -20 penalty → adjusted score ~62.
+    // D train at 19:30 (after safe): score ~46.
+    // K train at 20:00 (after safe): tight exam buffer → score ~18.
+    //
+    // Pass 1 best = D (46). Pass 2 best (adjusted) = G (62).
+    // 62 - 46 = 16 > 15 (IMPROVEMENT_MARGIN) → leave recommended.
 
     const earlyGTrain = makeTrain({
       id: "G9999",
@@ -113,18 +117,8 @@ describe("buildReturnPlans", () => {
       trainType: "G",
       price: 350,
       durationMinutes: 260,
-      departureTime: "2026-06-26T17:00:00+08:00", // before safe time 19:15
+      departureTime: "2026-06-26T17:00:00+08:00",
       arrivalTime: "2026-06-26T21:20:00+08:00",
-    });
-
-    const lateKTrain = makeTrain({
-      id: "K1010",
-      trainNumber: "K1010",
-      trainType: "K",
-      price: 150,
-      durationMinutes: 660,
-      departureTime: "2026-06-26T20:00:00+08:00", // after safe time
-      arrivalTime: "2026-06-27T07:00:00+08:00",
     });
 
     const lateDTrain = makeTrain({
@@ -133,23 +127,24 @@ describe("buildReturnPlans", () => {
       trainType: "D",
       price: 400,
       durationMinutes: 500,
-      departureTime: "2026-06-26T19:30:00+08:00", // after safe time
+      departureTime: "2026-06-26T19:30:00+08:00",
       arrivalTime: "2026-06-27T03:50:00+08:00",
     });
 
-    // Score with tight exam — exam at 08:00 next day
+    const lateKTrain = makeTrain({
+      id: "K1010",
+      trainNumber: "K1010",
+      trainType: "K",
+      price: 150,
+      durationMinutes: 660,
+      departureTime: "2026-06-26T20:00:00+08:00",
+      arrivalTime: "2026-06-27T07:00:00+08:00",
+    });
+
     const firstExam = "2026-06-27T08:00:00+08:00";
 
     const earlyG = scoreTrainCandidate({
       train: earlyGTrain,
-      safeDepartureDatetime: safeDatetime(),
-      firstExamAt: firstExam,
-      stationToSchoolMinutes: { "烟台站": 30, "烟台南站": 30 },
-      preference: "balanced",
-    });
-
-    const lateK = scoreTrainCandidate({
-      train: lateKTrain,
       safeDepartureDatetime: safeDatetime(),
       firstExamAt: firstExam,
       stationToSchoolMinutes: { "烟台站": 30, "烟台南站": 30 },
@@ -164,12 +159,16 @@ describe("buildReturnPlans", () => {
       preference: "balanced",
     });
 
-    const scored = [earlyG, lateK, lateD];
-    scored.sort((a, b) => b.score - a.score);
+    const lateK = scoreTrainCandidate({
+      train: lateKTrain,
+      safeDepartureDatetime: safeDatetime(),
+      firstExamAt: firstExam,
+      stationToSchoolMinutes: { "烟台站": 30, "烟台南站": 30 },
+      preference: "balanced",
+    });
 
-    // Pass 1 best should be the late D train (only trains after safe time)
-    // Pass 2 best should be the early G train (all trains)
-    // If G score > D score + 15, leave should be recommended
+    const scored = [earlyG, lateD, lateK];
+    scored.sort((a, b) => b.score - a.score);
 
     const result = buildReturnPlans({
       scoredTrains: scored,
@@ -178,16 +177,12 @@ describe("buildReturnPlans", () => {
       preference: "balanced",
     });
 
-    // The early G should win if it's meaningfully better
-    if (earlyG.score - Math.max(lateD.score, lateK.score) > TWO_PASS.IMPROVEMENT_MARGIN) {
-      expect(result.leaveSuggestion.needLeave).toBe(true);
-      expect(result.leaveSuggestion.reason).toContain("建议请假");
-      expect(result.leaveSuggestion.suggestedEarlyDepartureMinutes).toBeGreaterThan(0);
-      expect(result.selectedTrain!.id).toBe("G9999");
-    } else {
-      // If not meaningfully better, should stick with Pass 1
-      expect(result.leaveSuggestion.needLeave).toBe(false);
-    }
+    // Fixed assertion: early G adjusted score (62) > late D score (46) + 15 margin
+    // MUST recommend leave
+    expect(result.leaveSuggestion.needLeave).toBe(true);
+    expect(result.leaveSuggestion.suggestedEarlyDepartureMinutes).toBeGreaterThan(0);
+    expect(result.selectedTrain!.id).toBe("G9999");
+    expect(result.plans[0]!.title).toContain("需请假");
   });
 
   // ---- Pass 1 finds nothing good, Pass 2 not much better → no leave ----
@@ -267,8 +262,8 @@ describe("buildReturnPlans", () => {
 
   // ---- All trains before safe time ----
 
-  it("handles case where no trains depart after safe time", () => {
-    // All trains depart before safe departure time
+  it("recommends leave when no trains depart after safe time (acceptance criterion)", () => {
+    // All trains depart before safe departure time (19:15)
     const train1 = makeTrain({
       id: "T1",
       trainNumber: "T1001",
@@ -302,9 +297,12 @@ describe("buildReturnPlans", () => {
       preference: "balanced",
     });
 
-    // Should handle gracefully — use best available
+    // Fixed assertion: ALL trains are before safe time → MUST recommend leave
     expect(result.plans.length).toBeGreaterThanOrEqual(1);
     expect(result.selectedTrain).not.toBeNull();
+    expect(result.leaveSuggestion.needLeave).toBe(true);
+    expect(result.leaveSuggestion.suggestedEarlyDepartureMinutes).toBeGreaterThan(0);
+    expect(result.leaveSuggestion.reason).toContain("建议请假");
   });
 
   // ---- Plan structure validation ----

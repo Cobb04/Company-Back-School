@@ -23,8 +23,12 @@ app.get("/health", (c) => {
 });
 
 // S1: Safe departure time calculator.
+// DEPRECATED since S3 — use POST /api/plan/evaluate instead.
 // Thin route — validates input, delegates to planning-core, returns JSON.
 app.post("/api/plan/safe-departure", async (c) => {
+  c.header("Deprecation", "true");
+  c.header("Sunset", "Sat, 01 Aug 2026 00:00:00 GMT");
+  c.header("Link", '</api/plan/evaluate>; rel="successor-version"');
   let body: unknown;
   try {
     body = await c.req.json();
@@ -111,9 +115,20 @@ function isRealDate(dateStr: string): boolean {
   return `${y}-${m}-${da}` === dateStr;
 }
 
+/** Returns true if the ISO datetime has a real calendar date portion. */
+function isRealISODate(iso: string): boolean {
+  const match = iso.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (!match || !match[1]) return false;
+  return isRealDate(match[1]);
+}
+
 // S2: Train search with scoring.
+// DEPRECATED since S3 — use POST /api/plan/evaluate instead.
 // Thin route — validates input, delegates to mockTicketSource + planning-core.
 app.post("/api/train/search", async (c) => {
+  c.header("Deprecation", "true");
+  c.header("Sunset", "Sat, 01 Aug 2026 00:00:00 GMT");
+  c.header("Link", '</api/plan/evaluate>; rel="successor-version"');
   let body: unknown;
   try {
     body = await c.req.json();
@@ -154,9 +169,9 @@ app.post("/api/train/search", async (c) => {
     return c.json({ error: `clockOutTime must be in HH:mm format, got "${clockOutTime}"` }, 400);
   }
 
-  // Validate firstExamAt is a valid ISO 8601 datetime (prevent 500 in scoring)
+  // Validate firstExamAt is a valid ISO 8601 datetime with a real calendar date
   const firstExamAt = input.firstExamAt as string;
-  if (isNaN(new Date(firstExamAt).getTime())) {
+  if (isNaN(new Date(firstExamAt).getTime()) || !isRealISODate(firstExamAt)) {
     return c.json({ error: `firstExamAt must be a valid ISO 8601 datetime, got "${firstExamAt}"` }, 400);
   }
 
@@ -357,13 +372,13 @@ app.post("/api/plan/evaluate", async (c) => {
     return c.json({ error: `clockOutTime must be in HH:mm format, got "${clockOutTime}"` }, 400);
   }
 
-  // Validate firstExamAt is a valid ISO 8601 datetime
+  // Validate firstExamAt is a valid ISO 8601 datetime with a real calendar date
   const firstExamAt = input.firstExamAt as string;
-  if (isNaN(new Date(firstExamAt).getTime())) {
+  if (isNaN(new Date(firstExamAt).getTime()) || !isRealISODate(firstExamAt)) {
     return c.json({ error: `firstExamAt must be a valid ISO 8601 datetime, got "${firstExamAt}"` }, 400);
   }
 
-  // Validate preference enum
+  // Validate preference enum (plan evaluate)
   const preference = input.preference as string;
   if (!["price_sensitive", "time_sensitive", "balanced"].includes(preference)) {
     return c.json(

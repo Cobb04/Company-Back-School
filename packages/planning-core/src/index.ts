@@ -554,8 +554,21 @@ export function buildReturnPlans(input: BuildReturnPlansInput): BuildReturnPlans
     };
   }
 
-  // Pass 2: consider all trains (including those before safe departure)
-  const pass2Best = scoredTrains[0] ?? null;
+  // Pass 2: re-score all trains with the -20 early-departure penalty removed.
+  // In the leave scenario, the intern can leave whenever they need to,
+  // so "早于安全出发时间" is no longer a penalty — it's the expected behavior.
+  const pass2Adjusted = scoredTrains.map((t) => {
+    const hasDepartPenalty = t.reasons.some((r) =>
+      r.includes("早于安全出发时间"),
+    );
+    if (!hasDepartPenalty) return t;
+    return { ...t, score: Math.min(100, t.score + 20) };
+  });
+  pass2Adjusted.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.departureTime.localeCompare(b.departureTime);
+  });
+  const pass2Best = pass2Adjusted[0] ?? null;
 
   // Check if Pass 2 is meaningfully better
   if (
@@ -569,7 +582,7 @@ export function buildReturnPlans(input: BuildReturnPlansInput): BuildReturnPlans
 
     const primaryPlan = buildPlan(pass2Best, "推荐方案（需请假）", preference, firstExamAt);
     const alternatives = buildAlternativePlans(
-      scoredTrains.filter((t) => t.id !== pass2Best.id),
+      pass2Adjusted.filter((t) => t.id !== pass2Best.id),
       primaryPlan,
       preference,
       firstExamAt,
@@ -580,7 +593,7 @@ export function buildReturnPlans(input: BuildReturnPlansInput): BuildReturnPlans
       plans: [primaryPlan, ...alternatives],
       leaveSuggestion: {
         needLeave: true,
-        reason: `正常下班后最佳车次 ${pass1Best.trainNumber} 仅 ${pass1Best.score} 分（低于 ${TWO_PASS.PASS1_THRESHOLD} 分阈值），提前出发可搭乘 ${pass2Best.trainNumber}，评分提升至 ${pass2Best.score} 分。`,
+        reason: `正常下班后最佳车次 ${pass1Best.trainNumber} 仅 ${pass1Best.score} 分（低于 ${TWO_PASS.PASS1_THRESHOLD} 分阈值），提前出发可搭乘 ${pass2Best.trainNumber}，请假场景评分提升至 ${pass2Best.score} 分。`,
         suggestedEarlyDepartureMinutes: earlyMinutes,
         leaveText: "",
         estimatedLeaveDays: 0,
@@ -590,7 +603,7 @@ export function buildReturnPlans(input: BuildReturnPlansInput): BuildReturnPlans
   }
 
   // Pass 2 not meaningfully better — stick with Pass 1
-  // (Or if Pass 1 empty, fall through to best available)
+  // If Pass 1 had no trains, all trains require early departure → need leave
   const bestTrain = pass1Best ?? scoredTrains[0];
   if (!bestTrain) {
     return {
@@ -603,6 +616,33 @@ export function buildReturnPlans(input: BuildReturnPlansInput): BuildReturnPlans
         estimatedLeaveDays: 0,
       },
       selectedTrain: null,
+    };
+  }
+
+  if (!pass1Best) {
+    // All trains depart before safe time — the intern MUST take leave
+    const bestDepartureMs = isoToEpochMs(bestTrain.departureTime);
+    const earlyMinutes = Math.max(0, Math.round((safeMs - bestDepartureMs) / 60000));
+
+    const primaryPlan = buildPlan(bestTrain, "推荐方案（需请假）", preference, firstExamAt);
+    const alternatives = buildAlternativePlans(
+      scoredTrains.filter((t) => t.id !== bestTrain.id),
+      primaryPlan,
+      preference,
+      firstExamAt,
+      2,
+    );
+
+    return {
+      plans: [primaryPlan, ...alternatives],
+      leaveSuggestion: {
+        needLeave: true,
+        reason: `所有可用车次均早于安全出发时间，建议请假至少提前 ${earlyMinutes} 分钟出发。最佳车次 ${bestTrain.trainNumber} 评分 ${bestTrain.score} 分。`,
+        suggestedEarlyDepartureMinutes: earlyMinutes,
+        leaveText: "",
+        estimatedLeaveDays: 0,
+      },
+      selectedTrain: bestTrain,
     };
   }
 
@@ -619,9 +659,7 @@ export function buildReturnPlans(input: BuildReturnPlansInput): BuildReturnPlans
     plans: [primaryPlan, ...alternatives],
     leaveSuggestion: {
       needLeave: false,
-      reason: pass1Best
-        ? `正常下班后最佳车次 ${pass1Best.trainNumber} 评分 ${pass1Best.score} 分，虽未达 ${TWO_PASS.PASS1_THRESHOLD} 分理想阈值，但提前出发无显著改善，建议正常出发。`
-        : `当前可用车次有限，最佳车次 ${bestTrain.trainNumber} 评分 ${bestTrain.score} 分。`,
+      reason: `正常下班后最佳车次 ${pass1Best.trainNumber} 评分 ${pass1Best.score} 分，虽未达 ${TWO_PASS.PASS1_THRESHOLD} 分理想阈值，但提前出发无显著改善，建议正常出发。`,
       suggestedEarlyDepartureMinutes: 0,
       leaveText: "",
       estimatedLeaveDays: 0,
