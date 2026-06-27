@@ -1,5 +1,5 @@
-import { useState, useMemo, useCallback } from "react";
-import type { PlanEvaluateResponse, ScoredTrain, ReturnPlan, Preference } from "@return-school/shared";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import type { PlanEvaluateResponse, ScoredTrain, ReturnPlan, Preference, LeaveReason } from "@return-school/shared";
 
 const PREFERENCE_LABELS: Record<Preference, string> = {
   price_sensitive: "价格敏感",
@@ -421,6 +421,9 @@ export default function App() {
               </div>
             )}
           </section>
+
+          {/* S6: Action Area — collapsible, below comparison list */}
+          <ActionArea primaryPlan={result.plans[0] ?? null} />
         </>
       )}
     </main>
@@ -673,4 +676,277 @@ function extractTime(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+// ============================================================
+// S6: Action Area — Leave Message Generator + Checklist
+// ============================================================
+
+const REASON_LABELS: Record<LeaveReason, string> = {
+  "生病": "生病",
+  "考试": "考试",
+  "组会": "组会",
+  "家庭原因": "家庭原因",
+};
+
+function ActionArea({
+  primaryPlan,
+}: {
+  primaryPlan: ReturnPlan | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [recipientName, setRecipientName] = useState("");
+  const [reason, setReason] = useState<LeaveReason>("考试");
+  const [message, setMessage] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [messageError, setMessageError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // Checklist from the primary plan (already computed by planning-core)
+  const checklist = primaryPlan?.checklist ?? [];
+
+  // Checklist checked state
+  const [checkedItems, setCheckedItems] = useState<boolean[]>([]);
+
+  // Reset checked items when checklist changes
+  useEffect(() => {
+    setCheckedItems(checklist.map(() => false));
+  }, [checklist]);
+
+  const handleGenerate = useCallback(async () => {
+    if (!primaryPlan) return;
+    if (recipientName.trim() === "") {
+      setMessageError("请输入称呼");
+      return;
+    }
+
+    setMessageError(null);
+    setGenerating(true);
+
+    const train = primaryPlan.train;
+    const departTime = extractTime(train.departureTime);
+    // Derive date from the selected train's own departure time,
+    // never from the mutable form state — avoids date/train mismatch.
+    const departDate = train.departureTime.slice(0, 10);
+
+    try {
+      const res = await fetch("/api/plan/leave-message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipientName: recipientName.trim(),
+          reason,
+          trainNumber: train.trainNumber,
+          departureStation: train.departureStation,
+          departureTime: departTime,
+          arrivalStation: train.arrivalStation,
+          departDate,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setMessage(data.message);
+        setCopied(false);
+      } else {
+        setMessageError(data.error ?? "生成失败");
+        setMessage(null);
+      }
+    } catch {
+      setMessageError("网络请求失败");
+      setMessage(null);
+    } finally {
+      setGenerating(false);
+    }
+  }, [primaryPlan, recipientName, reason]);
+
+  const handleCopy = useCallback(async () => {
+    if (!message) return;
+    try {
+      await navigator.clipboard.writeText(message);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Fallback for older browsers
+      const textarea = document.createElement("textarea");
+      textarea.value = message;
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand("copy");
+      document.body.removeChild(textarea);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }, [message]);
+
+  const toggleCheckItem = useCallback((index: number) => {
+    setCheckedItems((prev) => {
+      const next = [...prev];
+      next[index] = !next[index];
+      return next;
+    });
+  }, []);
+
+  return (
+    <section className="mt-4 rounded-xl bg-white shadow-sm">
+      {/* Collapse toggle */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="flex w-full items-center justify-between rounded-xl px-6 py-4
+                   text-left hover:bg-gray-50 transition-colors"
+      >
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">行动区</h2>
+          <p className="text-sm text-gray-500">
+            请假文案生成 · 出发前清单
+          </p>
+        </div>
+        <span className="text-gray-400 text-lg">
+          {expanded ? "▲" : "▼"}
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-gray-100 px-6 py-5 space-y-6">
+          {/* ---- Leave Message Generator ---- */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-800 mb-3">
+              请假文案生成
+            </h3>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {/* Recipient name */}
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-gray-700">
+                  称呼
+                </span>
+                <input
+                  type="text"
+                  value={recipientName}
+                  onChange={(e) => {
+                    setRecipientName(e.target.value);
+                    setMessage(null);
+                    setMessageError(null);
+                  }}
+                  placeholder="例如：王经理"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900
+                             placeholder-gray-300
+                             focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </label>
+
+              {/* Reason selector */}
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-gray-700">
+                  请假原因
+                </span>
+                <select
+                  value={reason}
+                  onChange={(e) => {
+                    setReason(e.target.value as LeaveReason);
+                    setMessage(null);
+                    setMessageError(null);
+                  }}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900
+                             focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  {(Object.keys(REASON_LABELS) as LeaveReason[]).map((r) => (
+                    <option key={r} value={r}>
+                      {REASON_LABELS[r]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {/* Generate button */}
+            <button
+              type="button"
+              onClick={handleGenerate}
+              disabled={generating || !primaryPlan}
+              className="mt-3 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white
+                         hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
+                         transition-colors"
+            >
+              {generating ? "生成中…" : "生成"}
+            </button>
+
+            {/* Error */}
+            {messageError && (
+              <p className="mt-2 text-sm text-red-600">{messageError}</p>
+            )}
+
+            {/* Message preview + copy button */}
+            {message && (
+              <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <pre className="flex-1 whitespace-pre-wrap text-sm text-gray-800 font-sans leading-relaxed">
+                    {message}
+                  </pre>
+                  <button
+                    type="button"
+                    onClick={handleCopy}
+                    className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                      copied
+                        ? "bg-green-100 text-green-700"
+                        : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                    }`}
+                  >
+                    {copied ? "已复制 ✓" : "一键复制"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ---- Checklist ---- */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-800 mb-3">
+              出发前清单
+            </h3>
+
+            {checklist.length === 0 ? (
+              <p className="text-sm text-gray-400">
+                暂无可用的出发清单
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {checklist.map((item, i) => (
+                  <li key={i}>
+                    <label
+                      className={`flex items-center gap-3 rounded-lg border px-4 py-2.5 cursor-pointer transition-colors ${
+                        checkedItems[i]
+                          ? "border-green-200 bg-green-50"
+                          : "border-gray-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checkedItems[i] ?? false}
+                        onChange={() => toggleCheckItem(i)}
+                        className="h-4 w-4 rounded border-gray-300 text-blue-600
+                                   focus:ring-blue-500"
+                      />
+                      <span
+                        className={`text-sm ${
+                          checkedItems[i]
+                            ? "text-gray-500 line-through"
+                            : "text-gray-800"
+                        }`}
+                      >
+                        {item}
+                      </span>
+                    </label>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
 }

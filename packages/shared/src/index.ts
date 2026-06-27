@@ -229,3 +229,32 @@ export interface SafeDepartureOutput {
   /** Earliest safe train departure time in "HH:mm" format (24-hour). */
   safeDepartureTime: string;
 }
+
+// --- S6: Leave Message Generator ---
+
+/** Supported leave reasons. */
+export type LeaveReason = "生病" | "考试" | "组会" | "家庭原因";
+
+/** Input for the leave message generator. */
+export interface GenerateLeaveMessageInput {
+  /** Recipient name / 称呼, e.g. "王经理". */
+  recipientName: string;
+  /** Leave reason selected by the intern. */
+  reason: LeaveReason;
+  /** Train number, e.g. "G1234". */
+  trainNumber: string;
+  /** Departure station name. */
+  departureStation: string;
+  /** Departure time in "HH:mm" 24-hour format. */
+  departureTime: string;
+  /** Arrival station name. */
+  arrivalStation: string;
+  /** Departure date in "YYYY-MM-DD" format. */
+  departDate: string;
+}
+
+/** Output from the leave message generator. */
+export interface GenerateLeaveMessageOutput {
+  /** The complete leave message ready to copy. */
+  message: string;
+}

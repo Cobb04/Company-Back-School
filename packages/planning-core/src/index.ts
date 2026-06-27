@@ -17,6 +17,9 @@ import type {
   Decision,
   ReturnPlan,
   LeaveSuggestion,
+  LeaveReason,
+  GenerateLeaveMessageInput,
+  GenerateLeaveMessageOutput,
 } from "@return-school/shared";
 
 // ============================================================
@@ -758,8 +761,11 @@ function buildPlan(
     risks.push("K字头普快列车，耗时长、舒适度低");
   }
 
-  // Checklist is empty for S3 — comes in S4/S6
-  const checklist: string[] = [];
+  // Checklist per Issue #6: two minimal items
+  const checklist: string[] = [
+    `确认出发站: ${train.departureStation}`,
+    "带好身份证",
+  ];
 
   // Leave suggestion is per-plan — filled when the train requires early departure.
   // Two markers: original "早于安全出发时间" (no-leave score) or
@@ -804,4 +810,92 @@ function buildAlternativePlans(
   return alternatives.map((t, i) =>
     buildPlan(t, `备选方案 ${i + 1}`, preference, firstExamAt),
   );
+}
+
+// ============================================================
+// S6: Leave Message Generator (Deterministic Template)
+// ============================================================
+
+/** Reason-specific opening lines. Keys are LeaveReason values. */
+const REASON_OPENINGS: Record<LeaveReason, string> = {
+  "生病": "因身体不适，需要请假休息。",
+  "考试": "因{date}有一场考试，需要提前赶往学校。",
+  "组会": "因需参加课题组会，无法正常到岗。",
+  "家庭原因": "因家庭原因，需要请假处理。",
+};
+
+/** Reason-specific tone phrases for the closing. */
+const REASON_CLOSINGS: Record<LeaveReason, string> = {
+  "生病": "身体恢复后将尽快返岗。",
+  "考试": "考试结束后将尽快返岗。",
+  "组会": "组会结束后将尽快返岗。",
+  "家庭原因": "事情处理完毕后将尽快返岗。",
+};
+
+/**
+ * Generate a copy-ready leave request message using a deterministic template.
+ *
+ * Template structure (per Issue #6):
+ *   称呼开头 — 日期有某考试 — 需赶某时间从某站出发的车次 — 请半天/一天假
+ *
+ * Phase 0: pure string interpolation, NO LLM.
+ * Phase 1: replace with XHS-sourced templates + LLM personalization.
+ *
+ * Half-day vs full-day logic:
+ *   - Departure before 12:00 → "一天" (need the whole day)
+ *   - Departure at or after 12:00 → "半天"
+ */
+export function generateLeaveMessage(
+  input: GenerateLeaveMessageInput,
+): GenerateLeaveMessageOutput {
+  const { recipientName, reason, trainNumber, departureStation, departureTime, arrivalStation, departDate } = input;
+
+  // Validate reason
+  if (!(reason in REASON_OPENINGS)) {
+    throw new Error(
+      `Unsupported leave reason: "${reason}". Supported: 生病, 考试, 组会, 家庭原因`,
+    );
+  }
+
+  // Validate recipient name
+  if (recipientName.trim() === "") {
+    throw new Error("recipientName must be a non-empty string");
+  }
+
+  // Determine half-day or full-day
+  const isAfternoon = isAfternoonDeparture(departureTime);
+  const leaveDuration = isAfternoon ? "半天" : "一天";
+
+  // Build reason opening with date interpolation for 考试
+  let reasonOpening = REASON_OPENINGS[reason];
+  if (reason === "考试") {
+    reasonOpening = reasonOpening.replace("{date}", departDate);
+  }
+
+  const message =
+    `${recipientName}，您好！\n` +
+    `${reasonOpening}\n` +
+    `计划于 ${departDate} 乘坐 ${trainNumber}（${departureStation} ${departureTime} 出发 → ${arrivalStation}），` +
+    `特向您请${leaveDuration}假，望批准。\n` +
+    `${REASON_CLOSINGS[reason]}\n` +
+    `谢谢！`;
+
+  return { message };
+}
+
+/**
+ * Returns true if the "HH:mm" departure time is at or after 12:00.
+ * Validates hours are 0-23, minutes 0-59.
+ */
+function isAfternoonDeparture(time: string): boolean {
+  if (!/^\d{2}:\d{2}$/.test(time)) {
+    throw new Error(`Invalid time format: "${time}". Expected "HH:mm".`);
+  }
+  const [hoursStr, minutesStr] = time.split(":") as [string, string];
+  const hours = Number(hoursStr);
+  const minutes = Number(minutesStr);
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+    throw new Error(`Invalid time value: "${time}". Hours must be 0–23, minutes 0–59.`);
+  }
+  return hours >= 12;
 }

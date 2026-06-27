@@ -367,6 +367,34 @@ describe("buildReturnPlans", () => {
     }
   });
 
+  // ---- Checklist populated (Issue #6) ----
+
+  it("checklist has 2 items with correct departure station", () => {
+    const scored = [
+      scoreTrain(makeTrain({
+        id: "G1234",
+        trainNumber: "G1234",
+        departureStation: "上海虹桥",
+        departureTime: "2026-06-26T19:30:00+08:00",
+      }), "balanced"),
+    ];
+    scored.sort((a, b) => b.score - a.score);
+
+    const result = buildReturnPlans({
+      scoredTrains: scored,
+      safeDepartureDatetime: safeDatetime(),
+      firstExamAt: "2026-06-27T09:00:00+08:00",
+      preference: "balanced",
+    });
+
+    for (const plan of result.plans) {
+      expect(plan.checklist.length).toBe(2);
+      expect(plan.checklist[0]).toContain("确认出发站:");
+      expect(plan.checklist[0]).toContain(plan.train.departureStation);
+      expect(plan.checklist[1]).toBe("带好身份证");
+    }
+  });
+
   // ---- Leave suggestion structure ----
 
   it("leaveSuggestion has required fields", () => {

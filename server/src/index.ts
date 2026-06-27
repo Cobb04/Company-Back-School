@@ -3,6 +3,7 @@ import {
   calculateSafeDepartureTime,
   calculateSafeDepartureDatetime,
   scoreTrainCandidate,
+  generateLeaveMessage,
 } from "@return-school/planning-core";
 import type {
   SafeDepartureInput,
@@ -10,6 +11,8 @@ import type {
   TrainSearchResponse,
   ScoredTrain,
   PlanEvaluateRequest,
+  GenerateLeaveMessageInput,
+  LeaveReason,
 } from "@return-school/shared";
 import { getStationsForCity } from "@return-school/shared";
 import { mockTicketSource } from "./adapters/mockTicketSource";
@@ -480,6 +483,104 @@ app.post("/api/plan/evaluate", async (c) => {
       return c.json({ error: err.message }, isInputError ? 400 : 500);
     }
     return c.json({ error: "Failed to evaluate return plan" }, 500);
+  }
+});
+
+// S6: Leave message generator — deterministic template.
+// Thin route: validates input, delegates to planning-core, returns JSON.
+app.post("/api/plan/leave-message", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return c.json({ error: "Request body must be a JSON object" }, 400);
+  }
+
+  const input = body as Record<string, unknown>;
+
+  // Validate recipientName (required, non-empty string)
+  if (typeof input.recipientName !== "string" || input.recipientName.trim() === "") {
+    return c.json({ error: "recipientName is required and must be a non-empty string" }, 400);
+  }
+
+  // Validate reason (required, must be one of the 4 supported reasons)
+  const SUPPORTED_REASONS: LeaveReason[] = ["生病", "考试", "组会", "家庭原因"];
+  if (typeof input.reason !== "string" || !(SUPPORTED_REASONS as string[]).includes(input.reason)) {
+    return c.json(
+      { error: `reason must be one of: ${SUPPORTED_REASONS.join(", ")}` },
+      400,
+    );
+  }
+
+  // Validate trainNumber (required, non-empty string)
+  if (typeof input.trainNumber !== "string" || input.trainNumber.trim() === "") {
+    return c.json({ error: "trainNumber is required and must be a non-empty string" }, 400);
+  }
+
+  // Validate departureStation (required, non-empty string)
+  if (typeof input.departureStation !== "string" || input.departureStation.trim() === "") {
+    return c.json({ error: "departureStation is required and must be a non-empty string" }, 400);
+  }
+
+  // Validate departureTime (required, "HH:mm" format, valid range)
+  if (typeof input.departureTime !== "string" || !/^\d{2}:\d{2}$/.test(input.departureTime)) {
+    return c.json(
+      { error: `departureTime must be in HH:mm format, got "${input.departureTime}"` },
+      400,
+    );
+  }
+  {
+    const [h, m] = (input.departureTime as string).split(":").map(Number) as [number, number];
+    if (h < 0 || h > 23 || m < 0 || m > 59) {
+      return c.json(
+        { error: `departureTime must have hours 0-23 and minutes 0-59, got "${input.departureTime}"` },
+        400,
+      );
+    }
+  }
+
+  // Validate arrivalStation (required, non-empty string)
+  if (typeof input.arrivalStation !== "string" || input.arrivalStation.trim() === "") {
+    return c.json({ error: "arrivalStation is required and must be a non-empty string" }, 400);
+  }
+
+  // Validate departDate (required, "YYYY-MM-DD" format and real calendar date)
+  if (typeof input.departDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(input.departDate)) {
+    return c.json(
+      { error: `departDate must be in YYYY-MM-DD format, got "${input.departDate}"` },
+      400,
+    );
+  }
+  if (!isRealDate(input.departDate)) {
+    return c.json(
+      { error: `departDate must be a valid calendar date, got "${input.departDate}"` },
+      400,
+    );
+  }
+
+  // Call the deterministic template engine
+  try {
+    const req: GenerateLeaveMessageInput = {
+      recipientName: input.recipientName as string,
+      reason: input.reason as LeaveReason,
+      trainNumber: input.trainNumber as string,
+      departureStation: input.departureStation as string,
+      departureTime: input.departureTime as string,
+      arrivalStation: input.arrivalStation as string,
+      departDate: input.departDate as string,
+    };
+
+    const result = generateLeaveMessage(req);
+    return c.json(result);
+  } catch (err) {
+    return c.json(
+      { error: err instanceof Error ? err.message : "Failed to generate leave message" },
+      400,
+    );
   }
 });
 
