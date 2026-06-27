@@ -139,6 +139,23 @@ export interface PlanEvaluateResponse {
   plans: ReturnPlan[];
   /** Leave recommendation from two-pass scoring. */
   leaveSuggestion: LeaveSuggestion;
+  /**
+   * Extreme speed mode metadata.
+   * Always present: `active: false` when mode is off,
+   * `active: true` with XHS-sourced buffer values when on.
+   */
+  extremeSpeedMode: {
+    /** Whether extreme speed mode was active for this evaluation. */
+    active: boolean;
+    /** Effective station entry buffer used (minutes). */
+    stationEntryBufferMinutes: number;
+    /** Effective risk buffer used (minutes). */
+    riskBufferMinutes: number;
+    /** Stations that contributed XHS entry time data. */
+    xhsStationsUsed: string[];
+    /** Per-station XHS entry times for display. */
+    xhsStationTimes: Record<string, number>;
+  } | null;
 }
 
 // --- City-Station Mapping ---
@@ -157,6 +174,32 @@ export const CITY_STATION_MAP: Record<string, string[]> = {
  */
 export function getStationsForCity(city: string): string[] {
   return CITY_STATION_MAP[city] ?? [];
+}
+
+// --- Extreme Speed Mode: XHS-Sourced Station Entry Times ---
+
+/**
+ * Community-sourced minimum station entry times (minutes).
+ * Phase 0 hardcoded values per Issue #7.
+ * Phase 1 replaces with XHS-Downloader MCP live data.
+ */
+export const XHS_STATION_ENTRY_TIMES: Record<string, number> = {
+  "上海虹桥": 8,
+  "上海站": 10,
+  "上海南站": 10,
+  "烟台站": 8,
+  "烟台南站": 10,
+};
+
+/** Extreme speed mode risk buffer (minutes). Always 5 in this mode. */
+export const EXTREME_SPEED_RISK_BUFFER = 5;
+
+/**
+ * Returns the XHS-sourced station entry time for a given station,
+ * or null if no data is available.
+ */
+export function getXHSEntryTime(stationName: string): number | null {
+  return XHS_STATION_ENTRY_TIMES[stationName] ?? null;
 }
 
 // --- Train Search ---

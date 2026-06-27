@@ -22,6 +22,7 @@ import {
   calculateSafeDepartureDatetime,
   scoreTrainCandidate,
   buildReturnPlans,
+  computeExtremeSpeedBuffers,
 } from "@return-school/planning-core";
 
 // Re-export TicketSource so callers can import from one place.
@@ -59,12 +60,29 @@ export async function evaluateReturnPlan(
   }
 
   // 2. Calculate safe departure datetime
+  // When extreme speed mode is active, override buffers with XHS-sourced values.
+  let effectiveStationEntryBuffer = request.stationEntryBufferMinutes;
+  let effectiveRiskBuffer = request.riskBufferMinutes;
+  let extremeSpeedMeta: { stationEntryBufferMinutes: number; riskBufferMinutes: number; xhsStationsUsed: string[]; xhsStationTimes: Record<string, number> } | null = null;
+
+  if (request.extremeSpeedMode) {
+    const esBuffers = computeExtremeSpeedBuffers(fromStations);
+    effectiveStationEntryBuffer = esBuffers.stationEntryBufferMinutes;
+    effectiveRiskBuffer = esBuffers.riskBufferMinutes;
+    extremeSpeedMeta = {
+      stationEntryBufferMinutes: esBuffers.stationEntryBufferMinutes,
+      riskBufferMinutes: esBuffers.riskBufferMinutes,
+      xhsStationsUsed: esBuffers.xhsStationsUsed,
+      xhsStationTimes: esBuffers.xhsStationTimes,
+    };
+  }
+
   const safeDepartureDatetime = calculateSafeDepartureDatetime({
     departDate: request.departDate,
     clockOutTime: request.clockOutTime,
     companyToStationMinutes: request.companyToStationMinutes,
-    stationEntryBufferMinutes: request.stationEntryBufferMinutes,
-    riskBufferMinutes: request.riskBufferMinutes,
+    stationEntryBufferMinutes: effectiveStationEntryBuffer,
+    riskBufferMinutes: effectiveRiskBuffer,
   });
 
   // 3. Fetch train candidates from the injected ticket source
@@ -117,6 +135,9 @@ export async function evaluateReturnPlan(
     groupedTrains,
     plans: planResult.plans,
     leaveSuggestion: planResult.leaveSuggestion,
+    extremeSpeedMode: extremeSpeedMeta
+      ? { active: true, ...extremeSpeedMeta }
+      : { active: false, stationEntryBufferMinutes: request.stationEntryBufferMinutes, riskBufferMinutes: request.riskBufferMinutes, xhsStationsUsed: [], xhsStationTimes: {} },
   };
 }
 

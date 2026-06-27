@@ -25,12 +25,30 @@ const COMFORT_LABELS: Record<string, string> = {
   unknown: "未知",
 };
 
-/** Compute date string N days before the given date. */
-function addDays(dateStr: string, days: number): string {
-  const d = new Date(dateStr + "T00:00:00");
-  if (isNaN(d.getTime())) return dateStr;
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+/**
+ * Compute date string offset by N days from the given YYYY-MM-DD input.
+ *
+ * Uses UTC arithmetic exclusively — NEVER converts through local timezone
+ * or toISOString(), because "2026-06-27T00:00:00" in +08:00 becomes
+ * "2026-06-26T16:00:00.000Z" and slice(0,10) shifts the calendar date.
+ */
+export function addDays(dateStr: string, days: number): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (!m) return dateStr;
+
+  const year = Number(m[1]);
+  const month = Number(m[2]); // 1-based
+  const day = Number(m[3]);
+
+  // Build a UTC timestamp — no local-timezone contamination
+  const utcMs = Date.UTC(year, month - 1, day + days);
+  if (isNaN(utcMs)) return dateStr;
+
+  const d = new Date(utcMs);
+  const y = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const da = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${mo}-${da}`;
 }
 
 export default function App() {
@@ -44,6 +62,7 @@ export default function App() {
   const [firstExamTime, setFirstExamTime] = useState("09:00");
   const [departDate, setDepartDate] = useState(() => addDays("2026-06-27", -1));
   const [stationToSchoolStr, setStationToSchoolStr] = useState("30");
+  const [extremeSpeedMode, setExtremeSpeedMode] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [stationEntryBufferStr, setStationEntryBufferStr] = useState("30");
   const [riskBufferStr, setRiskBufferStr] = useState("15");
@@ -107,6 +126,7 @@ export default function App() {
       companyToStationMinutes: companyToStation,
       firstExamAt,
       stationToSchoolMinutes,
+      extremeSpeedMode,
     };
     if (stationEntry !== null) body.stationEntryBufferMinutes = stationEntry;
     if (risk !== null) body.riskBufferMinutes = risk;
@@ -134,7 +154,7 @@ export default function App() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col bg-gray-50 px-4 py-8">
+    <main className="mx-auto flex min-h-screen max-w-3xl flex-col bg-gray-50 px-3 sm:px-4 py-6 sm:py-8 overflow-x-hidden">
       {/* Header */}
       <header className="mb-8 text-center">
         <h1 className="text-2xl font-bold text-gray-900">返校高铁规划</h1>
@@ -154,8 +174,9 @@ export default function App() {
             <select
               value={departureCity}
               onChange={(e) => setDepartureCity(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900
-                         focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900
+                         focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500
+                         min-h-[44px]"
             >
               <option value="上海">上海</option>
             </select>
@@ -169,8 +190,9 @@ export default function App() {
             <select
               value={destinationCity}
               onChange={(e) => setDestinationCity(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900
-                         focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900
+                         focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500
+                         min-h-[44px]"
             >
               <option value="烟台">烟台</option>
             </select>
@@ -184,8 +206,9 @@ export default function App() {
             <select
               value={preference}
               onChange={(e) => setPreference(e.target.value as Preference)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900
-                         focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900
+                         focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500
+                         min-h-[44px]"
             >
               <option value="price_sensitive">价格敏感</option>
               <option value="time_sensitive">时间敏感</option>
@@ -202,8 +225,9 @@ export default function App() {
               type="time"
               value={clockOutTime}
               onChange={(e) => setClockOutTime(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900
-                         focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900
+                         focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500
+                         min-h-[44px]"
             />
           </label>
 
@@ -219,9 +243,10 @@ export default function App() {
               value={companyToStationStr}
               onChange={(e) => setCompanyToStationStr(e.target.value)}
               placeholder="30"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900
                          placeholder-gray-300
-                         focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                         focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500
+                         min-h-[44px]"
             />
           </label>
 
@@ -237,9 +262,10 @@ export default function App() {
               value={stationToSchoolStr}
               onChange={(e) => setStationToSchoolStr(e.target.value)}
               placeholder="30"
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900
                          placeholder-gray-300
-                         focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                         focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500
+                         min-h-[44px]"
             />
           </label>
 
@@ -255,8 +281,9 @@ export default function App() {
               type="date"
               value={departDate}
               onChange={(e) => setDepartDate(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900
-                         focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900
+                         focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500
+                         min-h-[44px]"
             />
           </label>
 
@@ -270,15 +297,17 @@ export default function App() {
                 type="date"
                 value={firstExamDate}
                 onChange={(e) => handleExamDateChange(e.target.value)}
-                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-gray-900
-                           focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900
+                           focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500
+                           min-h-[44px]"
               />
               <input
                 type="time"
                 value={firstExamTime}
                 onChange={(e) => setFirstExamTime(e.target.value)}
-                className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-gray-900
-                           focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="flex-1 rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900
+                           focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500
+                           min-h-[44px]"
               />
             </div>
           </label>
@@ -289,8 +318,8 @@ export default function App() {
           type="button"
           onClick={() => setShowAdvanced((v) => !v)}
           className="mt-4 flex w-full items-center justify-between rounded-lg border
-                     border-gray-200 px-3 py-2 text-sm text-gray-600
-                     hover:bg-gray-50 transition-colors"
+                     border-gray-200 px-4 py-3 text-sm text-gray-600
+                     hover:bg-gray-50 transition-colors min-h-[44px]"
         >
           <span>高级设置</span>
           <span className="text-gray-400">{showAdvanced ? "▲" : "▼"}</span>
@@ -310,9 +339,10 @@ export default function App() {
                 value={stationEntryBufferStr}
                 onChange={(e) => setStationEntryBufferStr(e.target.value)}
                 placeholder="30"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900
+                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900
                            placeholder-gray-300
-                           focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                           focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500
+                           min-h-[44px]"
               />
             </label>
             <label className="block">
@@ -327,22 +357,54 @@ export default function App() {
                 value={riskBufferStr}
                 onChange={(e) => setRiskBufferStr(e.target.value)}
                 placeholder="15"
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900
+                className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900
                            placeholder-gray-300
-                           focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                           focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500
+                           min-h-[44px]"
               />
             </label>
           </div>
         )}
+
+        {/* Extreme Speed Mode Toggle (S5) */}
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={extremeSpeedMode}
+              onChange={(e) => setExtremeSpeedMode(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600
+                         focus:ring-amber-500"
+            />
+            <div className="flex-1">
+              <span className="text-sm font-semibold text-amber-800">
+                ⚠️ 极速冒险模式 <span className="text-xs font-normal text-amber-600">不推荐</span>
+              </span>
+              <p className="mt-0.5 text-xs text-amber-600">
+                使用小红书极速进站数据，风险自负
+              </p>
+              {extremeSpeedMode && (
+                <div className="mt-2 rounded bg-amber-100/50 px-3 py-2 text-xs text-amber-700 space-y-1">
+                  <p>开启后将应用更激进的缓冲策略：</p>
+                  <ul className="list-disc pl-4 space-y-0.5">
+                    <li>风险缓冲降至 <strong>5 分钟</strong></li>
+                    <li>进站缓冲使用小红书实测最短时间（8-10 分钟）</li>
+                    <li>可能产生更早出发、更高风险的结果</li>
+                  </ul>
+                </div>
+              )}
+            </div>
+          </label>
+        </div>
 
         {/* Search button */}
         <button
           type="button"
           onClick={handleSearch}
           disabled={loading}
-          className="mt-6 w-full rounded-lg bg-blue-600 px-4 py-3 text-white font-medium
+          className="mt-6 w-full rounded-lg bg-blue-600 px-4 py-3.5 text-white font-medium
                      hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
-                     transition-colors"
+                     transition-colors min-h-[48px]"
         >
           {loading ? "搜索中…" : "搜索车次"}
         </button>
@@ -383,6 +445,24 @@ export default function App() {
               </div>
             </div>
 
+            {/* Extreme Speed Mode Indicator */}
+            {result.extremeSpeedMode?.active && (
+              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                <p className="font-semibold">⚠️ 极速冒险模式已启用</p>
+                <p className="mt-1">
+                  全局进站缓冲 <strong>{result.extremeSpeedMode.stationEntryBufferMinutes} 分钟</strong>（保守取各站最大值）
+                  {" · "}风险缓冲 <strong>{result.extremeSpeedMode.riskBufferMinutes} 分钟</strong>
+                </p>
+                {Object.keys(result.extremeSpeedMode.xhsStationTimes).length > 0 && (
+                  <ul className="mt-1 text-xs text-amber-600 space-y-0.5">
+                    {Object.entries(result.extremeSpeedMode.xhsStationTimes).map(([station, minutes]) => (
+                      <li key={station}>小红书数据：{station} 最快进站 {minutes} 分钟</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+
             {result.groupedTrains.recommend.length === 0 &&
              result.groupedTrains.optional.length === 0 &&
              result.groupedTrains.notRecommended.length === 0 ? (
@@ -393,32 +473,41 @@ export default function App() {
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b-2 border-gray-200 text-left text-xs uppercase text-gray-500">
-                      <th className="whitespace-nowrap pb-2 pr-3">车次</th>
-                      <th className="whitespace-nowrap pb-2 pr-3">出发 → 到达</th>
-                      <th className="whitespace-nowrap pb-2 pr-3">出发时间</th>
-                      <th className="whitespace-nowrap pb-2 pr-3">到达时间</th>
-                      <th className="whitespace-nowrap pb-2 pr-3">到校时间</th>
-                      <th className="whitespace-nowrap pb-2 pr-3">历时</th>
-                      <th className="whitespace-nowrap pb-2 pr-3">价格</th>
-                      <th className="whitespace-nowrap pb-2 pr-3">考试缓冲</th>
-                      <th className="whitespace-nowrap pb-2 pr-3">舒适度</th>
-                      <th className="whitespace-nowrap pb-2 pr-3">评分</th>
-                      <th className="whitespace-nowrap pb-2 pr-3">风险</th>
-                      <th className="whitespace-nowrap pb-2">推荐</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {/* Recommend first, then optional, then not_recommended */}
-                    {[...result.groupedTrains.recommend, ...result.groupedTrains.optional, ...result.groupedTrains.notRecommended].map((train) => (
-                      <TrainRow key={train.id} train={train} />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <>
+                {/* Desktop: Table view (hidden on mobile) */}
+                <div className="hidden sm:block overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b-2 border-gray-200 text-left text-xs uppercase text-gray-500">
+                        <th className="whitespace-nowrap pb-2 pr-3">车次</th>
+                        <th className="whitespace-nowrap pb-2 pr-3">出发 → 到达</th>
+                        <th className="whitespace-nowrap pb-2 pr-3">出发时间</th>
+                        <th className="whitespace-nowrap pb-2 pr-3">到达时间</th>
+                        <th className="whitespace-nowrap pb-2 pr-3">到校时间</th>
+                        <th className="whitespace-nowrap pb-2 pr-3">历时</th>
+                        <th className="whitespace-nowrap pb-2 pr-3">价格</th>
+                        <th className="whitespace-nowrap pb-2 pr-3">考试缓冲</th>
+                        <th className="whitespace-nowrap pb-2 pr-3">舒适度</th>
+                        <th className="whitespace-nowrap pb-2 pr-3">评分</th>
+                        <th className="whitespace-nowrap pb-2 pr-3">风险</th>
+                        <th className="whitespace-nowrap pb-2">推荐</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...result.groupedTrains.recommend, ...result.groupedTrains.optional, ...result.groupedTrains.notRecommended].map((train) => (
+                        <TrainRow key={train.id} train={train} />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Mobile: Card view (hidden on desktop) */}
+                <div className="sm:hidden space-y-3">
+                  {[...result.groupedTrains.recommend, ...result.groupedTrains.optional, ...result.groupedTrains.notRecommended].map((train) => (
+                    <TrainCard key={train.id} train={train} />
+                  ))}
+                </div>
+              </>
             )}
           </section>
 
@@ -558,6 +647,144 @@ function TrainRow({ train }: { train: ScoredTrain }) {
   );
 }
 
+/** Mobile card view for a single scored train. */
+function TrainCard({ train }: { train: ScoredTrain }) {
+  const isRecommend = train.decision === "recommend";
+  const isNotRecommended = train.decision === "not_recommended";
+
+  const departTime = extractTime(train.departureTime);
+  const arriveTime = extractTime(train.arrivalTime);
+  const schoolTime = extractTime(train.estimatedSchoolArrival);
+
+  const durationHours = Math.floor(train.durationMinutes / 60);
+  const durationMins = train.durationMinutes % 60;
+  const durationStr =
+    durationHours > 0
+      ? `${durationHours}h${String(durationMins).padStart(2, "0")}m`
+      : `${durationMins}m`;
+
+  const examBufferStr =
+    train.examBufferMinutes < 0
+      ? "考试已开始"
+      : `${Math.floor(train.examBufferMinutes / 60)}h${train.examBufferMinutes % 60}m`;
+
+  const examBufferColor =
+    train.examBufferMinutes < 0
+      ? "text-red-600 font-semibold"
+      : train.examBufferMinutes < 60
+        ? "text-red-600"
+        : train.examBufferMinutes < 120
+          ? "text-yellow-600"
+          : "text-green-600";
+
+  const riskBadgeColor =
+    train.riskLevel === "low"
+      ? "bg-green-100 text-green-700"
+      : train.riskLevel === "medium"
+        ? "bg-yellow-100 text-yellow-700"
+        : "bg-red-100 text-red-700";
+
+  const decisionBadgeColor =
+    train.decision === "recommend"
+      ? "bg-blue-100 text-blue-700"
+      : train.decision === "optional"
+        ? "bg-gray-100 text-gray-600"
+        : "bg-red-50 text-red-500";
+
+  const comfortBadgeColor =
+    train.comfortLevel === "comfortable"
+      ? "bg-green-100 text-green-700"
+      : train.comfortLevel === "uncomfortable"
+        ? "bg-orange-100 text-orange-700"
+        : "bg-gray-100 text-gray-600";
+
+  return (
+    <div
+      className={`rounded-xl border p-4 ${
+        isRecommend
+          ? "border-blue-200 bg-blue-50/50"
+          : isNotRecommended
+            ? "border-gray-200 opacity-60"
+            : "border-gray-200"
+      }`}
+    >
+      {/* Header row: train number + decision badge */}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          {isRecommend && <span>⭐</span>}
+          <span className="font-mono font-semibold text-gray-900 text-base">
+            {train.trainNumber}
+          </span>
+          <span className="text-xs text-gray-400">{train.trainType}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-medium ${riskBadgeColor}`}
+          >
+            {RISK_LABELS[train.riskLevel]}
+          </span>
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-medium ${decisionBadgeColor}`}
+          >
+            {DECISION_LABELS[train.decision]}
+          </span>
+        </div>
+      </div>
+
+      {/* Route */}
+      <div className="text-sm text-gray-700 mb-2">
+        <span>{train.departureStation}</span>
+        <span className="mx-1 text-gray-300">→</span>
+        <span>{train.arrivalStation}</span>
+      </div>
+
+      {/* Time grid: 2x2 */}
+      <div className="grid grid-cols-2 gap-2 mb-2 text-xs">
+        <div>
+          <span className="text-gray-400">出发</span>
+          <span className="ml-1 font-mono font-semibold text-gray-900">{departTime}</span>
+        </div>
+        <div>
+          <span className="text-gray-400">到达</span>
+          <span className="ml-1 font-mono font-semibold text-gray-900">{arriveTime}</span>
+        </div>
+        <div>
+          <span className="text-gray-400">到校</span>
+          <span className="ml-1 font-mono text-gray-600">{schoolTime}</span>
+        </div>
+        <div>
+          <span className="text-gray-400">历时</span>
+          <span className="ml-1 text-gray-600">{durationStr}</span>
+        </div>
+      </div>
+
+      {/* Bottom row: price, exam buffer, comfort, score */}
+      <div className="flex items-center justify-between flex-wrap gap-2 pt-2 border-t border-gray-100">
+        <div className="flex items-center gap-3 text-xs">
+          <span className="font-mono font-semibold text-gray-900">¥{train.price}</span>
+          <span className={examBufferColor}>
+            缓冲 {examBufferStr}
+          </span>
+          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${comfortBadgeColor}`}>
+            {COMFORT_LABELS[train.comfortLevel]}
+          </span>
+        </div>
+        <span
+          className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold ${
+            train.score >= 52
+              ? "bg-green-100 text-green-700"
+              : train.score >= 35
+                ? "bg-yellow-100 text-yellow-700"
+                : "bg-red-100 text-red-700"
+          }`}
+        >
+          {train.score}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /** Display the primary plan summary bar. */
 function PlanSummary({
   plans,
@@ -574,21 +801,21 @@ function PlanSummary({
   const schoolTime = extractTime(train.estimatedSchoolArrival);
 
   return (
-    <section className="mt-6 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 p-6 text-white shadow-md">
+    <section className="mt-6 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 p-5 sm:p-6 text-white shadow-md">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-sm font-medium text-blue-100">
+        <div className="min-w-0">
+          <h2 className="text-sm font-medium text-blue-100 truncate">
             {primary.title}
           </h2>
-          <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-2xl font-bold">
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xl sm:text-2xl font-bold">
             <span className="font-mono">{train.trainNumber}</span>
-            <span className="text-blue-100">
+            <span className="text-blue-100 text-sm sm:text-base">
               {train.departureStation}
               <span className="mx-1">→</span>
               {train.arrivalStation}
             </span>
           </div>
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-blue-100">
+          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs sm:text-sm text-blue-100">
             <span>出发 <span className="font-mono font-semibold text-white">{departTime}</span></span>
             <span>到达 <span className="font-mono font-semibold text-white">{arriveTime}</span></span>
             <span>到校 <span className="font-mono font-semibold text-white">{schoolTime}</span></span>
@@ -795,8 +1022,8 @@ function ActionArea({
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center justify-between rounded-xl px-6 py-4
-                   text-left hover:bg-gray-50 transition-colors"
+        className="flex w-full items-center justify-between rounded-xl px-4 sm:px-6 py-4
+                   text-left hover:bg-gray-50 transition-colors min-h-[48px]"
       >
         <div>
           <h2 className="text-lg font-semibold text-gray-900">行动区</h2>
@@ -832,9 +1059,10 @@ function ActionArea({
                     setMessageError(null);
                   }}
                   placeholder="例如：王经理"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900
                              placeholder-gray-300
-                             focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                             focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500
+                             min-h-[44px]"
                 />
               </label>
 
@@ -850,8 +1078,9 @@ function ActionArea({
                     setMessage(null);
                     setMessageError(null);
                   }}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-gray-900
-                             focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-gray-900
+                             focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500
+                             min-h-[44px]"
                 >
                   {(Object.keys(REASON_LABELS) as LeaveReason[]).map((r) => (
                     <option key={r} value={r}>
@@ -867,9 +1096,9 @@ function ActionArea({
               type="button"
               onClick={handleGenerate}
               disabled={generating || !primaryPlan}
-              className="mt-3 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white
+              className="mt-3 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white
                          hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
-                         transition-colors"
+                         transition-colors min-h-[44px]"
             >
               {generating ? "生成中…" : "生成"}
             </button>
@@ -882,22 +1111,20 @@ function ActionArea({
             {/* Message preview + copy button */}
             {message && (
               <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <pre className="flex-1 whitespace-pre-wrap text-sm text-gray-800 font-sans leading-relaxed">
-                    {message}
-                  </pre>
-                  <button
-                    type="button"
-                    onClick={handleCopy}
-                    className={`shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                      copied
-                        ? "bg-green-100 text-green-700"
-                        : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-                    }`}
-                  >
-                    {copied ? "已复制 ✓" : "一键复制"}
-                  </button>
-                </div>
+                <pre className="whitespace-pre-wrap text-sm text-gray-800 font-sans leading-relaxed break-words">
+                  {message}
+                </pre>
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  className={`mt-3 w-full rounded-lg px-3 py-2.5 text-sm font-medium transition-colors min-h-[44px] ${
+                    copied
+                      ? "bg-green-100 text-green-700"
+                      : "bg-gray-200 text-gray-700 hover:bg-gray-300 active:bg-gray-400"
+                  }`}
+                >
+                  {copied ? "已复制 ✓" : "一键复制"}
+                </button>
               </div>
             )}
           </div>
@@ -917,7 +1144,7 @@ function ActionArea({
                 {checklist.map((item, i) => (
                   <li key={i}>
                     <label
-                      className={`flex items-center gap-3 rounded-lg border px-4 py-2.5 cursor-pointer transition-colors ${
+                      className={`flex items-center gap-3 rounded-lg border px-4 py-3 cursor-pointer transition-colors min-h-[44px] ${
                         checkedItems[i]
                           ? "border-green-200 bg-green-50"
                           : "border-gray-200 hover:bg-gray-50"
@@ -927,8 +1154,8 @@ function ActionArea({
                         type="checkbox"
                         checked={checkedItems[i] ?? false}
                         onChange={() => toggleCheckItem(i)}
-                        className="h-4 w-4 rounded border-gray-300 text-blue-600
-                                   focus:ring-blue-500"
+                        className="h-5 w-5 rounded border-gray-300 text-blue-600
+                                   focus:ring-blue-500 shrink-0"
                       />
                       <span
                         className={`text-sm ${

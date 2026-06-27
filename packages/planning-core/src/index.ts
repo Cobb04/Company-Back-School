@@ -21,6 +21,13 @@ import type {
   GenerateLeaveMessageInput,
   GenerateLeaveMessageOutput,
 } from "@return-school/shared";
+import {
+  getXHSEntryTime,
+  EXTREME_SPEED_RISK_BUFFER,
+} from "@return-school/shared";
+
+// Re-export so callers can import from one place
+export { getXHSEntryTime, EXTREME_SPEED_RISK_BUFFER } from "@return-school/shared";
 
 // ============================================================
 // S1: Safe Departure Time
@@ -461,6 +468,73 @@ function minutesBetween(a: string, b: string): number {
   if (isNaN(da.getTime())) throw new Error(`Invalid ISO datetime: "${a}"`);
   if (isNaN(db.getTime())) throw new Error(`Invalid ISO datetime: "${b}"`);
   return Math.round((db.getTime() - da.getTime()) / 60000);
+}
+
+// ============================================================
+// S5: Extreme Speed Mode (极速冒险模式)
+// ============================================================
+
+/**
+ * Effective buffers when extreme speed mode is active.
+ *
+ * Business rules (per Issue #7):
+ *   - riskBuffer       → 5 minutes (EXTREME_SPEED_RISK_BUFFER)
+ *   - stationEntryBuffer → maximum XHS-sourced entry time across
+ *     the departure stations. Using max (not min) is intentional:
+ *     XHS entry time is station-specific, and a single global safe
+ *     departure must not apply a faster station's time to trains
+ *     departing from slower stations (e.g. 上海虹桥 8min must not
+ *     be applied to 上海站 10min trains).
+ *     If no station has XHS data, falls back to 10 minutes.
+ *
+ * Deterministic — no LLM, no real 12306.
+ */
+export interface ExtremeSpeedEffectiveBuffers {
+  /** Effective risk buffer (always 5 in extreme speed mode). */
+  riskBufferMinutes: number;
+  /** Effective station entry buffer from XHS data (conservative max). */
+  stationEntryBufferMinutes: number;
+  /** All stations that contributed XHS data. */
+  xhsStationsUsed: string[];
+  /** Per-station XHS entry times for display. */
+  xhsStationTimes: Record<string, number>;
+}
+
+/**
+ * Compute effective buffers for extreme speed mode.
+ *
+ * Uses the maximum XHS entry time across departure stations as the
+ * single global buffer — this is conservative: trains from stations
+ * with faster entry are not incorrectly given a lower threshold.
+ *
+ * @param departureStations — list of departure station names.
+ * @returns the effective buffer values and metadata.
+ */
+export function computeExtremeSpeedBuffers(
+  departureStations: string[],
+): ExtremeSpeedEffectiveBuffers {
+  const xhsStationsUsed: string[] = [];
+  const xhsStationTimes: Record<string, number> = {};
+  let maxEntryTime = -Infinity;
+
+  for (const station of departureStations) {
+    const xhs = getXHSEntryTime(station);
+    if (xhs !== null) {
+      xhsStationsUsed.push(station);
+      xhsStationTimes[station] = xhs;
+      if (xhs > maxEntryTime) maxEntryTime = xhs;
+    }
+  }
+
+  const stationEntryBufferMinutes =
+    xhsStationsUsed.length > 0 ? maxEntryTime : 10; // conservative fallback
+
+  return {
+    riskBufferMinutes: EXTREME_SPEED_RISK_BUFFER,
+    stationEntryBufferMinutes,
+    xhsStationsUsed,
+    xhsStationTimes,
+  };
 }
 
 // ============================================================

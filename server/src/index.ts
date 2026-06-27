@@ -465,7 +465,7 @@ app.post("/api/plan/evaluate", async (c) => {
         firstExamAt,
         stationToSchoolMinutes: stationToSchool,
         preference: preference as PlanEvaluateRequest["preference"],
-        extremeSpeedMode: false,
+        extremeSpeedMode: input.extremeSpeedMode === true,
       },
       { ticketSource: mockTicketSource },
     );
