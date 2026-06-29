@@ -37,7 +37,7 @@ export type { TicketSource } from "@return-school/shared";
  *   two-pass scoring + plan assembly → response
  *
  * Accepts a TicketSource via dependency injection so tests can
- * substitute a fake source and Phase 1 can swap in 12306-mcp.
+ * substitute a fake source and Phase 1 can swap in a real ticket-source adapter.
  *
  * Throws on invalid cities or date formats — callers should
  * validate before calling.

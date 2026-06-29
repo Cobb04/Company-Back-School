@@ -3,7 +3,7 @@
 // ============================================================
 // Phase 0 mock adapter. Implements TicketSource using static
 // JSON data from examples/shanghai-yantai.json.
-// Phase 1 will replace this with mcp12306TicketSource.
+// Phase 1 can replace this with a real TicketSource adapter.
 // ============================================================
 
 import type { TicketSource, TrainCandidate } from "@return-school/shared";
@@ -16,7 +16,7 @@ const MOCK_TRAINS: TrainCandidate[] = mockData as unknown as TrainCandidate[];
  * Mock implementation of TicketSource.
  *
  * Searches the static JSON file for trains matching the given stations.
- * Phase 0 only — replace with 12306-mcp adapter in Phase 1.
+ * Phase 0 only — replace with a real TicketSource adapter in Phase 1.
  */
 export const mockTicketSource: TicketSource = {
   async searchTrainCandidates(params) {

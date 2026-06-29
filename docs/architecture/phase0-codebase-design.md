@@ -1,47 +1,49 @@
 # Phase 0 Codebase Design
 
-This document defines the Phase 0 module interfaces for Return School Planner. The goal is to keep calculation, scoring, and planning behaviour behind small interfaces that are easy for agents to test and extend.
+This document records the current Phase 0 module interfaces for Return School Planner after Issues #1-#7. The design goal is still the same: keep return-planning behavior behind small interfaces, keep deterministic decisions out of the UI, and make Phase 1 data-source work possible without rewriting planning rules.
 
-## Design Goals
-
-- Put most return-planning behaviour behind one deep module interface.
-- Keep deterministic planning separate from the expression layer.
-- Avoid duplicating time and scoring rules between web and server.
-- Make Phase 0 mock data replaceable by 12306-mcp in Phase 1 without changing planning code.
-- Test observable behaviour through public interfaces, not private helpers.
-
-## Recommended Module Shape
+## Current Module Shape
 
 ### Shared Domain Module
 
-**Location:** `packages/shared/src`
+**Location:** `packages/shared/src/index.ts`
 
-**Interface:**
+**Interface role:** shared vocabulary for server, planning core, and web.
+
+Important exported types and constants:
 
 ```ts
-export type SeatStatus = "available" | "waitlist" | "sold_out" | "unknown";
 export type RiskLevel = "low" | "medium" | "high";
 export type Decision = "recommend" | "optional" | "not_recommended";
 export type Preference = "price_sensitive" | "time_sensitive" | "balanced";
 
-export interface TrainCandidate { /* domain fields only */ }
-export interface ScoredTrain extends TrainCandidate { /* score, riskLevel, decision, reasons */ }
-export interface LeaveSuggestion { /* needLeave, leaveText, estimatedLeaveDays */ }
-export interface ReturnPlan { /* title, train, summary, risks, checklist */ }
-export interface PlanEvaluateRequest { /* intern inputs and constraints */ }
-export interface PlanEvaluateResponse { /* safeDepartureTime, grouped trains, plans */ }
+export interface TrainCandidate { /* ticket-source facts */ }
+export interface ScoredTrain extends TrainCandidate { /* score, risk, reasons */ }
+export interface ReturnPlan { /* selected train, summary, risks, checklist */ }
+export interface LeaveSuggestion { /* whether to ask for leave and why */ }
+export interface PlanEvaluateRequest { /* intern constraints */ }
+export interface PlanEvaluateResponse { /* safe time, grouped trains, plans */ }
+
+export const CITY_STATION_MAP: Record<string, string[]>;
+export const XHS_STATION_ENTRY_TIMES: Record<string, number>;
+export const EXTREME_SPEED_RISK_BUFFER = 5;
 ```
 
-**Why this is deep enough:** callers learn one stable vocabulary for web and server. It prevents the web app from depending on `server/src/types`, which would make the server directory a fake shared module.
+The shared module intentionally contains types and lookup constants only. It does not score trains, choose plans, call ticket sources, or generate UI text.
 
 ### Planning Core Module
 
-**Location:** `packages/planning-core/src`
+**Location:** `packages/planning-core/src/index.ts`
 
-**Interface:**
+**Interface role:** deterministic business rules.
+
+Current public functions:
 
 ```ts
-export function calculateSafeDepartureTime(input: {
+export function calculateSafeDepartureTime(input: SafeDepartureInput): SafeDepartureOutput;
+
+export function calculateSafeDepartureDatetime(input: {
+  departDate: string;
   clockOutTime: string;
   companyToStationMinutes: number;
   stationEntryBufferMinutes: number;
@@ -50,127 +52,145 @@ export function calculateSafeDepartureTime(input: {
 
 export function scoreTrainCandidate(input: {
   train: TrainCandidate;
-  safeDepartureTime: string;
+  safeDepartureDatetime: string;
   firstExamAt: string;
   stationToSchoolMinutes: Record<string, number>;
   preference: Preference;
 }): ScoredTrain;
 
+export function computeExtremeSpeedBuffers(departureStations: string[]): {
+  riskBufferMinutes: number;
+  stationEntryBufferMinutes: number;
+  xhsStationsUsed: string[];
+  xhsStationTimes: Record<string, number>;
+};
+
 export function buildReturnPlans(input: {
   scoredTrains: ScoredTrain[];
-  safeDepartureTime: string;
+  safeDepartureDatetime: string;
   firstExamAt: string;
   preference: Preference;
-}): ReturnPlan[];
+}): {
+  plans: ReturnPlan[];
+  leaveSuggestion: LeaveSuggestion;
+  selectedTrain: ScoredTrain | null;
+  allScoredTrains: ScoredTrain[];
+};
+
+export function generateLeaveMessage(input: GenerateLeaveMessageInput): GenerateLeaveMessageOutput;
 ```
 
-**Hidden implementation:** time parsing, cross-day arithmetic, school arrival time, exam buffer, hard eliminations, score deductions, preference weighting, grouped reasons, leave suggestion triggers, and default checklist generation.
+Hidden implementation includes time parsing, cross-midnight arithmetic, score weighting, risk derivation, two-pass leave evaluation, leave-adjusted train modeling, checklist generation, and deterministic leave-message templates.
 
-**Dependency category:** in-process. No adapter is needed here.
-
-**Test surface:** pure tests on these exported functions are valid because these interfaces are used directly by the server and, for safe departure preview, by the web app.
+Planning core has no HTTP, browser, real ticket-source, LLM, or filesystem dependency.
 
 ### Plan Evaluator Module
 
 **Location:** `server/src/services/planEvaluator.ts`
 
-**Interface:**
+**Interface role:** primary deep module for server-side planning.
 
 ```ts
-export interface TicketSource {
-  searchTrainCandidates(query: {
-    fromStations: string[];
-    toStations: string[];
-    departDate: string;
-    trainTypes: string[];
-  }): Promise<TrainCandidate[]>;
-}
-
 export async function evaluateReturnPlan(
   request: PlanEvaluateRequest,
-  dependencies: {
-    ticketSource: TicketSource;
-  },
+  dependencies: { ticketSource: TicketSource },
 ): Promise<PlanEvaluateResponse>;
 ```
 
-**Hidden implementation:** querying train candidates, merging multi-station results, calculating safe departure time, scoring candidates, grouping scored trains, building return plans, and shaping the API response.
+Hidden implementation:
 
-**Dependency category:** true external once Phase 1 introduces 12306-mcp. The `TicketSource` interface is justified because Phase 0 needs a mock adapter and Phase 1 needs a 12306-mcp adapter.
+1. Expand departure and destination cities into stations.
+2. Apply normal or extreme-speed buffers.
+3. Calculate safe departure datetime.
+4. Query the injected `TicketSource`.
+5. Score every candidate.
+6. Build return plans and leave suggestion.
+7. Group trains using the coherent scored-train set returned by `buildReturnPlans`.
 
-**Test surface:** most server tests should cross this interface with a fake `TicketSource`, not test route internals or private scorer helpers.
+This is the main seam for Phase 1 real ticket-source work. A new adapter should satisfy `TicketSource`; it should not change planning core or web scoring logic.
 
-### Ticket Source Adapters
+### Ticket Source Adapter
 
-**Locations:**
+**Location:** `server/src/adapters/mockTicketSource.ts`
 
-- `server/src/adapters/mockTicketSource.ts`
-- `server/src/adapters/mcp12306TicketSource.ts`
+Phase 0 adapter:
 
-**Interface implemented:** `TicketSource`
+```ts
+export const mockTicketSource: TicketSource;
+```
 
-**Rules:**
+The mock adapter loads `examples/shanghai-yantai.json`, filters by departure station, arrival station, and `departDate`, and returns `TrainCandidate[]`.
 
-- Phase 0 uses `mockTicketSource` backed by `examples/shanghai-yantai.json`.
-- Phase 1 adds `mcp12306TicketSource`.
-- Planning modules never know whether a Train Candidate came from mock data or 12306-mcp beyond the `source` field.
+The adapter seam is justified because Phase 0 has a mock source and Phase 1 is expected to evaluate a real source such as FlyAI, 12306, or another provider.
 
-### API Route Modules
+### HTTP Routes
 
-**Locations:**
+**Location:** `server/src/index.ts`
 
-- `server/src/routes/train.ts`
-- `server/src/routes/plan.ts`
+Current routes:
 
-**Interface:** HTTP only.
+- `GET /health`
+- `POST /api/plan/evaluate` — primary endpoint.
+- `POST /api/plan/leave-message` — deterministic message endpoint.
+- `POST /api/plan/safe-departure` — deprecated since S3.
+- `POST /api/train/search` — deprecated since S3.
 
-**Rules:**
+Route responsibilities:
 
-- `/api/plan/evaluate` calls `evaluateReturnPlan` directly.
-- `/api/plan/evaluate` must not call `/api/train/search` over HTTP from inside the server.
-- Routes should stay shallow: validate request, call the deep module, return response.
+- validate request shape and primitive fields;
+- call the relevant planning module;
+- translate errors into HTTP responses.
 
-### Web Modules
+Routes should remain shallow. They should not call other routes over HTTP and should not duplicate scoring or plan-selection rules.
 
-**Locations:**
+### Web App
 
-- `apps/web/src/pages/Home.tsx`
-- `apps/web/src/pages/Result.tsx`
-- `apps/web/src/components/*`
-- `apps/web/src/api/client.ts`
+**Location:** `apps/web/src/App.tsx`
 
-**Rules:**
+The Phase 0 web app is intentionally compact and single-screen. It owns form state, API calls, mobile layout, and copy/checklist interactions. It does not recompute train scores, risk levels, return plans, or leave suggestions.
 
-- The input page may call `calculateSafeDepartureTime` for local preview.
-- Full evaluation comes from `/api/plan/evaluate`.
-- UI modules should present Return Plans, Scored Trains, Leave Suggestions, and Checklists. They should not recompute decisions.
+Current UI capabilities:
 
-## Rejected Shallow Designs
+- intern constraint form;
+- advanced buffer settings;
+- non-recommended extreme speed mode toggle;
+- plan summary;
+- train comparison table on desktop;
+- train cards on narrow screens;
+- leave suggestion banner;
+- collapsible action area;
+- deterministic leave-message generation and copy button;
+- checklist state.
 
-### Server types as shared types
+## Deliberate Boundaries
 
-Rejected because it makes the web app depend on the server directory. Shared domain vocabulary belongs in `packages/shared`.
+- **No real ticket data in Phase 0.** Train facts come from `examples/shanghai-yantai.json`.
+- **No LLM in Phase 0.** Leave messages are deterministic string templates.
+- **No 12306/FlyAI/XHS live calls in planning core.** Future live data must enter through adapters and normalized shared types.
+- **No UI-side decision logic.** The web app can validate form fields and display results, but decisions come from `planning-core` through `evaluateReturnPlan`.
+- **No route-to-route orchestration.** `/api/plan/evaluate` calls the deep module directly.
 
-### Route-to-route server calls
+## Review Notes After Phase 0
 
-Rejected because `/api/plan/evaluate` calling `/api/train/search` over HTTP would move orchestration into transport. The server should call the Plan Evaluator module directly.
+The overall module shape is healthy enough to continue into Phase 1. The strongest module is `evaluateReturnPlan`: one caller-facing interface hides multi-station expansion, ticket-source access, safe-departure calculation, scoring, two-pass planning, grouping, and response shaping.
 
-### Separate public helpers for every calculation step
+Known cleanup opportunities:
 
-Rejected because it makes the caller assemble the domain workflow. Time helpers can exist internally, but callers should mostly cross `calculateSafeDepartureTime`, `scoreTrainCandidate`, `buildReturnPlans`, or `evaluateReturnPlan`.
-
-### LLM as a planning dependency
-
-Rejected for Phase 0-2. The expression layer is not part of deterministic planning. In Phase 3, any LLM interface should be injected behind a separate expression-layer interface and consume only already-computed results.
+- `server/src/index.ts` repeats request validation between deprecated `/api/train/search` and primary `/api/plan/evaluate`. This is acceptable while deprecated routes remain, but should be reduced before adding more endpoints.
+- `apps/web/src/App.tsx` is now large because Phase 0 kept the UI in one file. Before adding Phase 1 UI features, extract form, result, train list, and action area modules.
+- `PlanEvaluateResponse.extremeSpeedMode` is now always present; keep that contract stable and do not reintroduce `null`.
+- Deprecated endpoints should be removed after their sunset date if no caller still depends on them.
 
 ## Testing Strategy
 
 Use these public interfaces as test surfaces:
 
-- `calculateSafeDepartureTime` for the live preview rule.
-- `scoreTrainCandidate` for G1/G2 scoring behaviour.
-- `buildReturnPlans` for leave suggestion and plan generation.
+- `calculateSafeDepartureTime` and `calculateSafeDepartureDatetime` for time rules.
+- `computeExtremeSpeedBuffers` for extreme-speed buffer rules.
+- `scoreTrainCandidate` for scoring and risk behavior.
+- `buildReturnPlans` for two-pass leave suggestion and plan generation.
+- `generateLeaveMessage` for deterministic copy generation.
 - `evaluateReturnPlan` for the end-to-end server planning path using a fake `TicketSource`.
-- `/api/plan/evaluate` for a thin HTTP integration test.
+- `/api/plan/evaluate` and `/api/plan/leave-message` for HTTP integration.
 
-Avoid tests that assert private helper names, internal time parsing details, or route-to-route call order.
+Avoid tests that assert private helper names, internal route order, or implementation-only formatting.

@@ -91,7 +91,7 @@ export interface LeaveSuggestion {
   reason: string;
   /** How many minutes earlier the intern should leave work to catch the recommended train. */
   suggestedEarlyDepartureMinutes: number;
-  /** Generated leave request text (S4 — Phase 3 expression layer). */
+  /** Deterministic leave request text generated from the selected train facts. */
   leaveText: string;
   /** Estimated days of leave needed. */
   estimatedLeaveDays: number;
@@ -105,9 +105,9 @@ export interface PlanEvaluateRequest {
   departureCity: string;
   /** The city closest to the intern's school. */
   destinationCity: string;
-  /** ISO 8601 date string for desired departure. */
+  /** Desired departure date in "YYYY-MM-DD" format. */
   departDate: string;
-  /** ISO 8601 datetime for clock-out time. */
+  /** Clock-out time in "HH:mm" format. */
   clockOutTime: string;
   /** Minutes from company to departure station. */
   companyToStationMinutes: number;
@@ -127,7 +127,7 @@ export interface PlanEvaluateRequest {
 
 /** Response from the plan evaluator. */
 export interface PlanEvaluateResponse {
-  /** Computed safe departure time (ISO 8601). */
+  /** Computed safe departure time in "HH:mm" display format. */
   safeDepartureTime: string;
   /** Scored trains grouped by decision category. */
   groupedTrains: {
@@ -210,11 +210,11 @@ export interface TrainSearchRequest {
   departureCity: string;
   /** Destination city name, e.g. "烟台". */
   destinationCity: string;
-  /** ISO 8601 date string, e.g. "2026-06-26". */
+  /** Departure date in "YYYY-MM-DD" format, e.g. "2026-06-26". */
   departDate: string;
   /** The intern's trade-off priority. */
   preference: Preference;
-  /** ISO 8601 datetime for clock-out time. */
+  /** Clock-out time in "HH:mm" format. */
   clockOutTime: string;
   /** Minutes from company to departure station. */
   companyToStationMinutes: number;
@@ -232,7 +232,7 @@ export interface TrainSearchRequest {
 export interface TrainSearchResponse {
   /** Scored trains sorted by score descending. */
   trains: ScoredTrain[];
-  /** Computed safe departure time (ISO 8601 datetime). */
+  /** Computed safe departure time in "HH:mm" display format. */
   safeDepartureTime: string;
   /** Total number of trains found. */
   total: number;
@@ -242,7 +242,7 @@ export interface TrainSearchResponse {
 
 /**
  * Trusted source of train availability data.
- * Phase 0: mockTicketSource. Phase 1: mcp12306TicketSource.
+ * Phase 0: mockTicketSource. Phase 1: real ticket-source adapter.
  * Planning code never knows which adapter is in use.
  */
 export interface TicketSource {

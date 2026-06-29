@@ -446,7 +446,7 @@ export default function App() {
             </div>
 
             {/* Extreme Speed Mode Indicator */}
-            {result.extremeSpeedMode?.active && (
+            {result.extremeSpeedMode.active && (
               <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
                 <p className="font-semibold">⚠️ 极速冒险模式已启用</p>
                 <p className="mt-1">

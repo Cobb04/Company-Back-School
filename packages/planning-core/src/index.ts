@@ -913,7 +913,7 @@ const REASON_CLOSINGS: Record<LeaveReason, string> = {
  *   称呼开头 — 日期有某考试 — 需赶某时间从某站出发的车次 — 请半天/一天假
  *
  * Phase 0: pure string interpolation, NO LLM.
- * Phase 1: replace with XHS-sourced templates + LLM personalization.
+ * Future phase: replace with curated templates or LLM personalization.
  *
  * Half-day vs full-day logic:
  *   - Departure before 12:00 → "一天" (need the whole day)

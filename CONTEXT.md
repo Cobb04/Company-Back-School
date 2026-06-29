@@ -1,6 +1,6 @@
 # Return School Planner
 
-This context describes the domain language for helping an off-site intern decide how to return to school for final exams. It covers travel constraints, train suitability, return plans, leave suggestions, and the boundary between deterministic decisions and generated wording.
+This context describes the domain language for helping an off-site intern decide how to return to school for final exams. It covers travel constraints, train suitability, return plans, leave suggestions, deterministic copy generation, and the boundary between Phase 0 mock data and future real data sources.
 
 ## Language
 
@@ -60,11 +60,11 @@ The comfort classification derived from train type. G (高铁) and D (动车) ar
 _Avoid_: Seat class, train grade
 
 **Station Entry Guide** (极速进站攻略):
-Community-sourced guide for the fastest entry route at a specific station — which gate, which path, and how many minutes minimum. Sourced from Xiaohongshu via XHS-Downloader MCP.
+Community-sourced guide for the fastest entry route at a specific station — which gate, which path, and how many minutes minimum. Phase 0 uses hardcoded Xiaohongshu-style station entry times for supported stations. Phase 1 may replace these values with XHS-Downloader MCP data after validation.
 _Avoid_: Speed guide, station tips, entry trick
 
 **Extreme Speed Mode** (极速冒险版):
-An optional, non-recommended mode where the intern accepts higher risk for faster station entry. When active: risk buffer drops to 5 minutes, station entry buffer is replaced by the XHS-sourced entry time (typically 5–10 minutes). Marked as "不推荐" in the UI.
+An optional, non-recommended mode where the intern accepts higher risk for faster station entry. When active: risk buffer drops to 5 minutes, station entry buffer uses the conservative maximum of the supported departure stations' XHS-style entry times. Marked as "不推荐" in the UI.
 _Avoid_: Speed run mode, risky mode, fast track
 
 **Risk Level**:
@@ -84,7 +84,7 @@ The product's advice on whether the intern should ask for time off work to reduc
 _Avoid_: Leave plan, absence advice
 
 **Leave Message** (请假文案):
-LLM-generated natural wording the intern sends to a mentor/manager to request leave. Built from: XHS-sourced leave-request templates + intern-provided recipient name (称呼) + selected reason (生病/考试/组会/家庭原因 etc.) + train facts from deterministic scoring. The LLM personalises tone and wording without fabricating train details.
+Deterministic copy-ready wording the intern sends to a mentor/manager to request leave. Phase 0 builds it from a fixed template, the intern-provided recipient name (称呼), selected reason (生病/考试/组会/家庭原因), and train facts from deterministic scoring. Future LLM or Xiaohongshu-style templates may only rewrite wording from already-computed facts.
 _Avoid_: Leave suggestion, request text, auto-generated message
 
 **Checklist**:
@@ -92,7 +92,7 @@ A set of preparation items the intern should complete before and during the retu
 _Avoid_: Todo list, tasks
 
 **Ticket Source**:
-The trusted source of train availability and price data. In this project, train facts come from 12306-mcp.
+The trusted source of train availability and price data. Phase 0 uses `mockTicketSource` backed by `examples/shanghai-yantai.json`. Phase 1 may replace this adapter with FlyAI, 12306, or another real data source behind the same `TicketSource` interface.
 _Avoid_: LLM, train API, source
 
 **Preference** (偏好):
