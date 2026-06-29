@@ -155,7 +155,7 @@ export interface PlanEvaluateResponse {
     xhsStationsUsed: string[];
     /** Per-station XHS entry times for display. */
     xhsStationTimes: Record<string, number>;
-  } | null;
+  };
 }
 
 // --- City-Station Mapping ---
